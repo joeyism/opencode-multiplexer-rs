@@ -1,0 +1,233 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ocmux_rs::{
+    app::{focus::AppFocus, reducer::reduce, state::AppState, Action},
+    terminal::{
+        color::{ansi_named_color, convert_color},
+        input::key_event_to_bytes,
+        renderer::TerminalWidget,
+        surface::TerminalSurface,
+    },
+    ui::{
+        layout::split_root,
+        sidebar::{
+            flatten_sidebar_entries, render_sidebar, sidebar_row_modifier, sidebar_row_style,
+            SidebarEntry,
+        },
+    },
+};
+use ratatui::{backend::TestBackend, layout::Rect, style::Color, Terminal};
+use std::collections::HashSet;
+
+#[test]
+fn collapsed_sidebar_render_keeps_time_visible_inside_border() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let entries = vec![SidebarEntry {
+        top_level_id: 1,
+        session_id: Some("sess_1".into()),
+        cwd: std::path::PathBuf::from("/tmp/delorean"),
+        title: "ADO-2228 build flux".into(),
+        status: ocmux_rs::app::sessions::SessionStatus::Working,
+        time_updated: Some(now - 30),
+        active: true,
+        origin: ocmux_rs::app::sessions::SessionOrigin::Managed,
+        has_children: false,
+        children: vec![],
+    }];
+
+    let rows = flatten_sidebar_entries(&entries, &HashSet::new());
+    let backend = TestBackend::new(16, 4);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.render_widget(
+                render_sidebar(&rows, 0, AppFocus::Sidebar, true, 14),
+                Rect::new(0, 0, 16, 4),
+            );
+        })
+        .unwrap();
+
+    let rendered_lines: Vec<String> = (0..4)
+        .map(|y| {
+            (0..16)
+                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+                .collect()
+        })
+        .collect();
+    let row = rendered_lines
+        .iter()
+        .find(|line| line.contains("1m"))
+        .unwrap();
+    assert!(row.contains("1m"));
+    assert!(row.trim_end_matches('│').trim_end().ends_with("1m"));
+}
+
+#[test]
+fn expanded_sidebar_render_right_aligns_time_within_content_width() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let entries = vec![SidebarEntry {
+        top_level_id: 1,
+        session_id: Some("sess_1".into()),
+        cwd: std::path::PathBuf::from("/tmp/delorean"),
+        title: "ADO-2228 build flux capacitor".into(),
+        status: ocmux_rs::app::sessions::SessionStatus::Working,
+        time_updated: Some(now - 120),
+        active: false,
+        origin: ocmux_rs::app::sessions::SessionOrigin::Managed,
+        has_children: false,
+        children: vec![],
+    }];
+
+    let rows = flatten_sidebar_entries(&entries, &HashSet::new());
+    let backend = TestBackend::new(22, 4);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.render_widget(
+                render_sidebar(&rows, 0, AppFocus::Sidebar, false, 20),
+                Rect::new(0, 0, 22, 4),
+            );
+        })
+        .unwrap();
+
+    let rendered_lines: Vec<String> = (0..4)
+        .map(|y| {
+            (0..22)
+                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+                .collect()
+        })
+        .collect();
+    assert!(rendered_lines.iter().any(|line| line.contains("2m")));
+    let row = rendered_lines
+        .iter()
+        .find(|line| line.contains("2m"))
+        .unwrap();
+    assert!(row.trim_end_matches('│').trim_end().ends_with("2m"));
+}
+
+#[test]
+fn active_sidebar_rows_do_not_get_special_styling() {
+    let modifier = sidebar_row_modifier();
+    let style = sidebar_row_style(false, true);
+
+    assert_eq!(modifier, ratatui::style::Modifier::empty());
+    assert_eq!(style.fg, None);
+    assert_eq!(style.bg, None);
+    assert_eq!(style.add_modifier, ratatui::style::Modifier::empty());
+}
+
+#[test]
+fn split_root_reserves_sidebar_and_footer() {
+    let layout = split_root(Rect::new(0, 0, 120, 40), 28, 1);
+
+    assert_eq!(layout.sidebar.width, 28);
+    assert_eq!(layout.footer.height, 1);
+    assert_eq!(layout.main.x, 28);
+    assert_eq!(layout.main.width, 92);
+}
+
+#[test]
+fn ctrl_backslash_toggles_focus_between_sidebar_and_terminal() {
+    let mut state = AppState::default();
+
+    reduce(&mut state, Action::ToggleFocus);
+    assert_eq!(state.focus, AppFocus::Terminal);
+
+    reduce(&mut state, Action::ToggleFocus);
+    assert_eq!(state.focus, AppFocus::Sidebar);
+}
+
+#[test]
+fn toggle_sidebar_collapse_action_flips_sidebar_state() {
+    let mut state = AppState::default();
+
+    reduce(&mut state, Action::ToggleSidebarCollapse);
+    assert!(state.sidebar_collapsed);
+
+    reduce(&mut state, Action::ToggleSidebarCollapse);
+    assert!(!state.sidebar_collapsed);
+}
+
+#[test]
+fn toggle_help_action_flips_help_overlay_state() {
+    let mut state = AppState::default();
+
+    reduce(&mut state, Action::ToggleHelp);
+    assert!(state.show_help);
+
+    reduce(&mut state, Action::ToggleHelp);
+    assert!(!state.show_help);
+}
+
+#[test]
+fn ansi_named_and_rgb_colors_map_to_ratatui_colors() {
+    assert_eq!(ansi_named_color(2), Color::Green);
+    assert_eq!(convert_color(1, 2, 3), Color::Rgb(1, 2, 3));
+}
+
+#[test]
+fn surface_processes_ansi_text_into_render_snapshot() {
+    let mut surface = TerminalSurface::new(4, 12);
+    surface.process(b"\x1b[31mhi\x1b[0m there");
+
+    let snapshot = surface.snapshot();
+    assert_eq!(snapshot[0][0].symbol, "h");
+    assert_eq!(snapshot[0][0].fg, Color::Red);
+    assert_eq!(snapshot[0][1].symbol, "i");
+    assert_eq!(snapshot[0][3].symbol, "t");
+}
+
+#[test]
+fn widget_renders_surface_content_into_buffer() {
+    let mut surface = TerminalSurface::new(3, 10);
+    surface.process(b"ocmux");
+
+    let backend = TestBackend::new(20, 8);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            let widget = TerminalWidget::new(&surface);
+            frame.render_widget(widget, Rect::new(0, 0, 10, 3));
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer[(0, 0)].symbol(), "o");
+    assert_eq!(buffer[(1, 0)].symbol(), "c");
+    assert_eq!(buffer[(2, 0)].symbol(), "m");
+    assert_eq!(buffer[(3, 0)].symbol(), "u");
+    assert_eq!(buffer[(4, 0)].symbol(), "x");
+}
+
+#[test]
+fn key_events_translate_into_pty_bytes() {
+    assert_eq!(
+        key_event_to_bytes(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).as_deref(),
+        Some(&b"a"[..])
+    );
+    assert_eq!(
+        key_event_to_bytes(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).as_deref(),
+        Some(&b"\r"[..])
+    );
+    assert_eq!(
+        key_event_to_bytes(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)).as_deref(),
+        Some(&[0x7f][..])
+    );
+    assert_eq!(
+        key_event_to_bytes(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)).as_deref(),
+        Some(&b"\x1b[D"[..])
+    );
+}
+
+#[test]
+fn surface_clamps_zero_dimensions() {
+    let surface = TerminalSurface::new(0, 0);
+
+    assert_eq!(surface.rows(), 1);
+    assert_eq!(surface.cols(), 1);
+}
