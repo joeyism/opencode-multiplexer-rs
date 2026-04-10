@@ -2,8 +2,7 @@ use std::{error::Error, time::Duration};
 
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-        MouseEventKind,
+        self, EnableBracketedPaste, DisableBracketedPaste, Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -11,9 +10,9 @@ use crossterm::{
 use ocmux_rs::{
     app::{focus::AppFocus, reducer::reduce, state::AppState, Action},
     config::load_config,
-    data::poller::start_poller,
+    data::{db::reader::DbReader, poller::start_poller},
     ops::worktree::create_worktree,
-    ops::{fzf::pick_directory, opencode::display_title_for_cwd},
+    ops::{fzf::{pick_directory, pick_session}, opencode::display_title_for_cwd},
     registry::save_managed_sessions,
     terminal::manager::PtyManager,
     ui::{
@@ -22,31 +21,30 @@ use ocmux_rs::{
     },
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use ocmux_rs::ui::sidebar::{display_session_label, relative_time_label};
+use std::path::PathBuf;
 
-const FOOTER_HEIGHT: u16 = 1;
+const FOOTER_HEIGHT: u16 = 2;
 const COLLAPSED_SIDEBAR_WIDTH: u16 = 12;
 
 fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen, EnableBracketedPaste, crossterm::event::EnableFocusChange)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let result = run(&mut terminal);
 
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableBracketedPaste, crossterm::event::DisableFocusChange)?;
     terminal.show_cursor()?;
     result
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), Box<dyn Error>> {
     let config = load_config().unwrap_or_default();
+    let _ = ocmux_rs::registry::cleanup_stale_serve_entries();
     let mut state = AppState::default();
     let mut manager = PtyManager::default();
     let mut footer_message: Option<String> = None;
@@ -81,6 +79,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     state.show_help,
                     sidebar_width,
                     state.sidebar_collapsed,
+                    state.app_focused,
                 )
             })?;
 
@@ -154,6 +153,31 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             }
                         }
                     }
+                    KeyCode::Char('/') => match pick_session_with_terminal(terminal) {
+                        Ok(Some((session_id, cwd, title, status, time_updated))) => {
+                            let (rows, cols) =
+                                pane_size(terminal.size()?.into(), config.sidebar_width);
+                            match manager.attach_arbitrary_session(
+                                session_id,
+                                cwd,
+                                title.clone(),
+                                status,
+                                time_updated,
+                                rows,
+                                cols,
+                            ) {
+                                Ok(_) => {
+                                    save_managed_sessions(manager.managed_session_ids())?;
+                                    state.focus = AppFocus::Terminal;
+                                    state.selected_sidebar_row = 0;
+                                    footer_message = None;
+                                }
+                                Err(error) => footer_message = Some(format!("attach failed: {error}")),
+                            }
+                        }
+                        Ok(None) => footer_message = Some("search canceled".into()),
+                        Err(error) => footer_message = Some(format!("search failed: {error}")),
+                    },
                     KeyCode::Char(c) if c == config.keybindings.kill => {
                         if let Some(row) = rows.get(state.selected_sidebar_row) {
                             match row.kind {
@@ -201,6 +225,53 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             if row.has_children {
                                 if let Some(session_id) = row.session_id.clone() {
                                     reduce(&mut state, Action::ToggleExpandSelected(session_id));
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char('r') => {
+                        let (pty_rows, pty_cols) = pane_size(terminal.size()?.into(), sidebar_width);
+                        match manager.refresh_active(pty_rows, pty_cols) {
+                            Ok(true) => footer_message = Some("refreshed session".into()),
+                            Ok(false) => footer_message = Some("no active session to refresh".into()),
+                            Err(error) => footer_message = Some(format!("refresh failed: {error}")),
+                        }
+                    }
+
+
+                    KeyCode::Char('c') => {
+                        if let Some(row) = rows.get(state.selected_sidebar_row) {
+                            match &row.kind {
+                                SidebarRowKind::TopLevel { session_id: Some(sid), .. } => {
+                                    if let Some(cwd) = resolve_session_cwd(row) {
+                                        match commit_session_files(terminal, sid, &cwd) {
+                                            Ok(Some(msg)) => footer_message = Some(msg),
+                                            Ok(None) => footer_message = Some("commit canceled".into()),
+                                            Err(e) => footer_message = Some(format!("commit failed: {e}")),
+                                        }
+                                    } else {
+                                        footer_message = Some("session directory not found".into());
+                                    }
+                                }
+                                _ => footer_message = Some("commit requires a top-level session with ID".into()),
+                            }
+                        }
+                    }
+                    KeyCode::Char('!') => {
+                        if let Some(row) = rows.get(state.selected_sidebar_row) {
+                            match &row.kind {
+                                SidebarRowKind::TopLevel { .. } => {
+                                    if let Some(cwd) = resolve_session_cwd(row) {
+                                        match drop_to_bash(terminal, &cwd) {
+                                            Ok(_) => footer_message = None,
+                                            Err(error) => footer_message = Some(format!("bash failed: {error}")),
+                                        }
+                                    } else {
+                                        footer_message = Some("session directory not found".into());
+                                    }
+                                }
+                                SidebarRowKind::Child { .. } => {
+                                    footer_message = Some("bash only on top-level sessions".into());
                                 }
                             }
                         }
@@ -289,6 +360,13 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         }
                     }
                 }
+                Event::Paste(text) if matches!(state.focus, AppFocus::Terminal) => {
+                    if let Some(pty) = manager.active_session_mut() {
+                        if let Err(error) = pty.send_paste(&text) {
+                            footer_message = Some(format!("paste failed: {error}"));
+                        }
+                    }
+                }
                 Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
                     if mouse.column < config.sidebar_width {
                         state.focus = AppFocus::Sidebar;
@@ -302,6 +380,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             manager.select_prev();
                         }
                     }
+                }
+                Event::FocusGained => {
+                    state.app_focused = true;
+                }
+                Event::FocusLost => {
+                    state.app_focused = false;
                 }
                 Event::Resize(width, height) => {
                     let (rows, cols) = pane_size(
@@ -338,14 +422,9 @@ fn is_focus_toggle(key: KeyEvent) -> bool {
 fn pick_directory_with_terminal(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> Result<Option<std::path::PathBuf>, Box<dyn Error>> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-
+    leave_tui(terminal)?;
     let picked = pick_directory();
-
-    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-    enable_raw_mode()?;
-    terminal.clear()?;
+    enter_tui(terminal)?;
 
     Ok(picked?)
 }
@@ -354,19 +433,17 @@ fn prompt_text_with_terminal(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     prompt: &str,
 ) -> Result<Option<String>, Box<dyn Error>> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    leave_tui(terminal)?;
 
     use std::io::Write;
+    print!("\x1b[2J\x1b[H");
     print!("{} ", prompt);
     std::io::stdout().flush()?;
 
     let mut input = String::new();
     let result = std::io::stdin().read_line(&mut input);
 
-    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-    enable_raw_mode()?;
-    terminal.clear()?;
+    enter_tui(terminal)?;
 
     match result {
         Ok(0) => Ok(None),
@@ -376,4 +453,176 @@ fn prompt_text_with_terminal(
         }
         Err(_) => Ok(None),
     }
+}
+
+fn pick_session_with_terminal(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+) -> Result<Option<(String, PathBuf, String, ocmux_rs::app::sessions::SessionStatus, Option<i64>)>, Box<dyn Error>> {
+    leave_tui(terminal)?;
+
+    let reader = DbReader::open_default()?;
+    let all = reader.get_all_sessions()?;
+    
+    let mut display_lines = Vec::new();
+    for session in &all {
+        let time_str = ocmux_rs::ui::sidebar::relative_time_from_updated(Some(session.time_updated));
+        let repo = session.worktree.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        let label = format!("{}/{}", repo, session.title);
+        let display = format!("{}\t{}", label, time_str);
+        display_lines.push((session.id.clone(), display));
+    }
+
+    let picked = pick_session(display_lines)?;
+
+    enter_tui(terminal)?;
+
+    if let Some(id) = picked {
+        if let Some(session) = all.iter().find(|s| s.id == id) {
+            let cwd = if session.directory.as_os_str().is_empty() {
+                session.worktree.clone()
+            } else {
+                session.directory.clone()
+            };
+            let reader2 = DbReader::open_default()?;
+            let status = reader2.get_session_status(&id)?;
+            return Ok(Some((id, cwd, session.title.clone(), status, Some(session.time_updated))));
+        }
+    }
+
+    Ok(None)
+}
+
+fn drop_to_bash(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    cwd: &std::path::Path,
+) -> Result<(), Box<dyn Error>> {
+    leave_tui(terminal)?;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
+    let _ = std::process::Command::new(&shell)
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+
+    enter_tui(terminal)?;
+    Ok(())
+}
+
+fn commit_session_files(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    session_id: &str,
+    cwd: &std::path::Path,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let reader = ocmux_rs::data::db::reader::DbReader::open_default()?;
+    let files = reader.get_session_modified_files(session_id)?;
+    if files.is_empty() {
+        return Ok(Some("no files modified by this session".into()));
+    }
+
+    leave_tui(terminal)?;
+    print!("\x1b[2J\x1b[H");
+
+    // Get git status for session files
+    let (created, modified, deleted) = ocmux_rs::ops::git::get_file_statuses(cwd, &files)?;
+
+    println!("Files modified by this session:\n");
+
+    if !created.is_empty() {
+        println!("\x1b[32mCreated:\x1b[0m"); // Green
+        for f in &created {
+            println!("\x1b[32m  {}\x1b[0m", f);
+        }
+        println!();
+    }
+
+    if !modified.is_empty() {
+        println!("\x1b[33mModified:\x1b[0m"); // Yellow
+        for f in &modified {
+            println!("\x1b[33m  {}\x1b[0m", f);
+        }
+        println!();
+    }
+
+    if !deleted.is_empty() {
+        println!("\x1b[31mDeleted:\x1b[0m"); // Red
+        for f in &deleted {
+            println!("\x1b[31m  {}\x1b[0m", f);
+        }
+        println!();
+    }
+
+    if created.is_empty() && modified.is_empty() && deleted.is_empty() {
+        println!("No uncommitted changes for session files.\n");
+    }
+
+    // Prompt for commit message
+    use std::io::Write;
+    print!("Commit message (empty to cancel): ");
+    std::io::stdout().flush()?;
+    let mut message = String::new();
+    std::io::stdin().read_line(&mut message)?;
+    let message = message.trim().to_string();
+
+    let result = if message.is_empty() {
+        None
+    } else {
+        // Run commit + push, show output
+        let output = ocmux_rs::ops::git::commit_and_push_files(cwd, &created, &modified, &deleted, &message)?;
+        println!("\n{}", output);
+        println!("Press Enter to continue...");
+        let _ = std::io::stdin().read_line(&mut String::new());
+        Some(format!("committed {} files", files.len()))
+    };
+
+    enter_tui(terminal)?;
+    Ok(result)
+}
+
+fn resolve_session_cwd(row: &ocmux_rs::ui::sidebar::SidebarVisibleRow) -> Option<PathBuf> {
+    if !row.cwd.as_os_str().is_empty() && row.cwd.is_dir() {
+        return Some(row.cwd.clone());
+    }
+    if let Some(sid) = row.session_id.as_deref() {
+        if let Ok(reader) = ocmux_rs::data::db::reader::DbReader::open_default() {
+            if let Ok(Some(session)) = reader.get_session_by_id(sid) {
+                if !session.directory.as_os_str().is_empty() && session.directory.is_dir() {
+                    return Some(session.directory);
+                }
+                if let Ok(projects) = reader.get_projects() {
+                    if let Some(proj) = projects.iter().find(|p| p.id == session.project_id) {
+                        if proj.worktree.is_dir() {
+                            return Some(proj.worktree.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn leave_tui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), Box<dyn Error>> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableBracketedPaste,
+        crossterm::event::DisableFocusChange
+    )?;
+    terminal.show_cursor()?;
+    Ok(())
+}
+
+fn enter_tui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), Box<dyn Error>> {
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableBracketedPaste,
+        crossterm::event::EnableFocusChange
+    )?;
+    enable_raw_mode()?;
+    terminal.clear()?;
+    Ok(())
 }

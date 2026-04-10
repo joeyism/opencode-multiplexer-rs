@@ -133,11 +133,14 @@ pub fn render_sidebar(
     focus: AppFocus,
     collapsed: bool,
     sidebar_width: u16,
+    app_focused: bool,
 ) -> Paragraph<'static> {
-    let title_style = if matches!(focus, AppFocus::Sidebar) {
-        Style::default().fg(Color::Cyan)
+    let (title_style, border_style) = if !app_focused {
+        (Style::default().fg(Color::DarkGray), Style::default().fg(Color::DarkGray))
+    } else if matches!(focus, AppFocus::Sidebar) {
+        (Style::default().fg(Color::Cyan), Style::default().fg(Color::Cyan))
     } else {
-        Style::default().fg(Color::Gray)
+        (Style::default().fg(Color::DarkGray), Style::default().fg(Color::DarkGray))
     };
 
     let lines = rows
@@ -156,6 +159,7 @@ pub fn render_sidebar(
     Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::RIGHT)
+            .border_style(border_style)
             .title(Span::styled("sessions", title_style)),
     )
 }
@@ -184,7 +188,7 @@ pub fn display_session_label(cwd: &Path, title: &str, collapsed: bool) -> String
         return format!("{}·{}…", repo_tag, prefix);
     }
     let repo_prefix: String = repo.chars().take(3).collect();
-    format!("{}/{}", repo_prefix, title)
+    format!("{}/{} ", repo_prefix, title)
 }
 
 pub fn relative_time_label(age_secs: u64) -> String {
@@ -245,7 +249,7 @@ fn format_sidebar_parts(
     };
     let time_text = time.to_string();
     if collapsed {
-        let content_width = sidebar_width.saturating_sub(2); // 2 dot span + 1 border
+        let content_width = sidebar_width.saturating_sub(3); // 2 dot span + 1 border
         let left_width = content_width.saturating_sub(time_text.chars().count() as u16) as usize;
         let padded = format!(
             "{:<width$}",
@@ -258,7 +262,7 @@ fn format_sidebar_parts(
         ""
     } else if has_children {
         if expanded {
-            "▾ "
+            "▽ "
         } else {
             "▸ "
         }
@@ -266,19 +270,19 @@ fn format_sidebar_parts(
         "  "
     };
     let indent = if is_child {
-        "  ".repeat(depth + 1)
+        " ".repeat(depth + 1)
     } else {
         String::new()
     };
     let active_prefix = if is_child {
-        ""
+        "└─ "
     } else if active {
-        "> "
+        "▶ "
     } else {
         "  "
     };
-    let prefix = format!("{}{}{}", indent, marker, active_prefix);
-    let content_width = sidebar_width.saturating_sub(2); // 2 dot span + 1 border
+    let prefix = format!("{}{}{}", indent, active_prefix, marker);
+    let content_width = sidebar_width.saturating_sub(3); // 2 dot span + 1 border
     let left_width = content_width.saturating_sub(time_text.chars().count() as u16) as usize;
     let left = format!(
         "{}{}",
@@ -398,6 +402,6 @@ fn render_row(
             Style::default().fg(color).patch(row_style),
         ),
         Span::styled(left, row_style),
-        Span::styled(right, row_style),
+        Span::styled(format!(" {}", right), row_style),
     ])
 }

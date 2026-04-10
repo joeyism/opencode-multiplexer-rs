@@ -180,11 +180,11 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
                 continue;
             }
             let cwd = if session.directory.as_os_str().is_empty() {
-                projects
-                    .iter()
-                    .find(|project| project.id == session.project_id)
-                    .map(|project| project.worktree.clone())
-                    .unwrap_or_default()
+                if let Some(proj) = projects.iter().find(|project| project.id == session.project_id) {
+                    proj.worktree.clone()
+                } else {
+                    continue; // Skip if no valid directory or project worktree exists
+                }
             } else {
                 session.directory.clone()
             };

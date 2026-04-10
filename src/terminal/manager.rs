@@ -53,18 +53,40 @@ impl PtyManager {
         rows: u16,
         cols: u16,
     ) -> anyhow::Result<u64> {
+        use crate::ops::opencode::{
+            find_available_port, get_latest_session_id_from_serve, spawn_serve_daemon,
+            wait_for_serve_ready,
+        };
+        use crate::registry::register_serve_process;
+
+        // Spawn serve daemon as persistent backend
+        let port = find_available_port(4200);
+        let serve_pid = spawn_serve_daemon(&cwd, port)?;
+        register_serve_process(port, serve_pid, &cwd)?;
+
+        // Wait for serve to be ready
+        if !wait_for_serve_ready(port, 10) {
+            anyhow::bail!("opencode serve did not start within 10s on port {}", port);
+        }
+
+        // Spawn TUI client as a disposable PTY (always fresh, no -s flag)
         let pty = PtySession::spawn_managed(&cwd, rows, cols)?;
+        let session_id = None;
         let process_pid = pty.process_id();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
         let id = self.sessions.push(
             cwd,
             title,
             SessionStatus::Working,
-            None,
+            session_id,
             SessionOrigin::Managed,
             process_pid,
             None,
             None,
-            None,
+            Some(now_ms),
             false,
             vec![],
         );
@@ -93,9 +115,41 @@ impl PtyManager {
         }
 
         self.activate_selected();
+        self.resize_active(rows, cols)?;
         Ok(())
     }
 
+
+    pub fn attach_arbitrary_session(
+        &mut self,
+        session_id: String,
+        cwd: PathBuf,
+        title: String,
+        status: SessionStatus,
+        time_updated: Option<i64>,
+        rows: u16,
+        cols: u16,
+    ) -> anyhow::Result<()> {
+        let pty = PtySession::spawn_replica(&cwd, &session_id, rows, cols)?;
+        let process_pid = pty.process_id();
+        let id = self.sessions.push(
+            cwd,
+            title,
+            status,
+            Some(session_id),
+            SessionOrigin::Managed,
+            process_pid,
+            None,
+            None,
+            time_updated,
+            false,
+            vec![],
+        );
+        self.ptys.insert(id, Some(pty));
+        self.sessions.select_last();
+        self.sessions.activate_selected();
+        Ok(())
+    }
     pub fn len(&self) -> usize {
         self.sessions.len()
     }
@@ -319,7 +373,35 @@ impl PtyManager {
         }
     }
 
+    pub fn refresh_active(&mut self, rows: u16, cols: u16) -> anyhow::Result<bool> {
+        let Some(active_id) = self.sessions.active_id() else {
+            return Ok(false);
+        };
+        let summary = self.sessions.items().iter().find(|s| s.id == active_id).cloned();
+        let Some(summary) = summary else {
+            return Ok(false);
+        };
+        let Some(session_id) = summary.session_id.as_deref() else {
+            return Ok(false);
+        };
+
+        // Kill existing PTY
+        if let Some(Some(pty)) = self.ptys.get_mut(&active_id) {
+            let _ = pty.kill();
+        }
+
+        // Spawn fresh replica
+        let pty = PtySession::spawn_replica(&summary.cwd, session_id, rows, cols)?;
+        if let Some(slot) = self.ptys.get_mut(&active_id) {
+            *slot = Some(pty);
+        }
+
+        Ok(true)
+    }
+
     pub fn shutdown_local_ptys(&mut self) {
+        // Only kill PTY clients (TUI viewers), NOT serve daemons.
+        // Serve daemons persist in the background for session continuity.
         for pty in self.ptys.values_mut().filter_map(Option::as_mut) {
             let _ = pty.kill();
         }

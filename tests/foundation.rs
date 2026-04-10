@@ -43,7 +43,7 @@ fn collapsed_sidebar_render_keeps_time_visible_inside_border() {
     terminal
         .draw(|frame| {
             frame.render_widget(
-                render_sidebar(&rows, 0, AppFocus::Sidebar, true, 14),
+                render_sidebar(&rows, 0, AppFocus::Sidebar, true, 14, true),
                 Rect::new(0, 0, 16, 4),
             );
         })
@@ -89,7 +89,7 @@ fn expanded_sidebar_render_right_aligns_time_within_content_width() {
     terminal
         .draw(|frame| {
             frame.render_widget(
-                render_sidebar(&rows, 0, AppFocus::Sidebar, false, 20),
+                render_sidebar(&rows, 0, AppFocus::Sidebar, false, 20, true),
                 Rect::new(0, 0, 22, 4),
             );
         })

@@ -106,6 +106,15 @@ impl PtySession {
         Ok(())
     }
 
+    pub fn send_paste(&mut self, text: &str) -> anyhow::Result<()> {
+        // Wrap in bracketed paste escape sequences
+        self.writer.write_all(b"[200~")?;
+        self.writer.write_all(text.as_bytes())?;
+        self.writer.write_all(b"[201~")?;
+        self.writer.flush()?;
+        Ok(())
+    }
+
     pub fn kill(&mut self) -> std::io::Result<()> {
         self.child.kill()
     }

@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 use crate::{
     app::sessions::SessionStatus,
-    data::db::models::{DbProject, DbSession, SessionPreview},
+    data::db::models::{DbProject, DbSession, DbSessionSummary, SessionPreview},
 };
 
 pub struct DbReader {
@@ -26,6 +26,33 @@ impl DbReader {
         Self::open(&default_db_path()?)
     }
 
+
+    pub fn get_all_sessions(&self) -> anyhow::Result<Vec<DbSessionSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.title, s.directory,
+                    COALESCE(
+                        (SELECT time_created FROM message WHERE session_id = s.id AND json_extract(data, '$.role') = 'user' ORDER BY time_created DESC LIMIT 1),
+                        s.time_created
+                    ) as last_interaction,
+                    s.time_archived, p.worktree
+             FROM session s
+             JOIN project p ON p.id = s.project_id
+             WHERE s.parent_id IS NULL
+             ORDER BY last_interaction DESC
+             LIMIT 500"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(DbSessionSummary {
+                id: row.get(0)?,
+                title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                directory: PathBuf::from(row.get::<_, Option<String>>(2)?.unwrap_or_default()),
+                time_updated: row.get(3)?,
+                archived: row.get::<_, Option<i64>>(4)?.is_some(),
+                worktree: PathBuf::from(row.get::<_, String>(5)?),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
     pub fn get_projects(&self) -> anyhow::Result<Vec<DbProject>> {
         let mut stmt = self
             .conn
@@ -46,7 +73,15 @@ impl DbReader {
     ) -> anyhow::Result<Option<DbSession>> {
         self.conn
             .query_row(
-                "SELECT id, project_id, title, directory, time_updated FROM session WHERE project_id = ?1 AND time_archived IS NULL AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1 OFFSET ?2",
+                "SELECT id, project_id, title, directory,
+                        COALESCE(
+                            (SELECT time_created FROM message WHERE session_id = session.id AND json_extract(data, '$.role') = 'user' ORDER BY time_created DESC LIMIT 1),
+                            time_created
+                        ) as last_interaction
+                 FROM session 
+                 WHERE project_id = ?1 AND time_archived IS NULL AND parent_id IS NULL 
+                 ORDER BY last_interaction DESC 
+                 LIMIT 1 OFFSET ?2",
                 params![project_id, offset as i64],
                 |row| {
                     Ok(DbSession {
@@ -65,7 +100,12 @@ impl DbReader {
     pub fn get_session_by_id(&self, session_id: &str) -> anyhow::Result<Option<DbSession>> {
         self.conn
             .query_row(
-                "SELECT id, project_id, title, directory, time_updated FROM session WHERE id = ?1",
+                "SELECT id, project_id, title, directory,
+                        COALESCE(
+                            (SELECT time_created FROM message WHERE session_id = session.id AND json_extract(data, '$.role') = 'user' ORDER BY time_created DESC LIMIT 1),
+                            time_created
+                        ) as last_interaction
+                 FROM session WHERE id = ?1",
                 [session_id],
                 |row| {
                     Ok(DbSession {
@@ -185,6 +225,28 @@ impl DbReader {
         }
     }
 
+
+    pub fn get_session_modified_files(&self, session_id: &str) -> anyhow::Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT file_path FROM (
+                SELECT COALESCE(
+                    json_extract(data, '$.state.input.filePath'),
+                    json_extract(data, '$.state.input.path'),
+                    json_extract(data, '$.state.metadata.filepath'),
+                    json_extract(data, '$.state.metadata.filediff.file'),
+                    json_extract(data, '$.input.filePath'),
+                    json_extract(data, '$.input.path')
+                ) AS file_path
+                FROM part
+                WHERE session_id = ?1
+                  AND json_extract(data, '$.type') = 'tool'
+                  AND json_extract(data, '$.tool') IN ('edit', 'write', 'apply_patch', 'github_create_or_update_file')
+            ) WHERE file_path IS NOT NULL
+            ORDER BY file_path"
+        )?;
+        let rows = stmt.query_map([session_id], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<String>>>()?)
+    }
     pub fn get_session_model(&self, session_id: &str) -> anyhow::Result<Option<String>> {
         self.conn
             .query_row(

@@ -182,6 +182,19 @@ fn replica_command_uses_session_flag() {
 }
 
 #[test]
+fn manager_can_attach_arbitrary_session() {
+    let mut manager = PtyManager::default();
+    manager.attach_arbitrary_session("sess_xyz".into(), PathBuf::from("/tmp/xyz"), "Arbitrary".into(), SessionStatus::Idle, Some(1234567890), 24, 80).unwrap();
+
+    let active = manager.active_session().unwrap();
+    let summary = manager.selected_summary().unwrap();
+
+    assert_eq!(summary.session_id.as_deref(), Some("sess_xyz"));
+    assert_eq!(summary.title, "Arbitrary");
+    assert_eq!(manager.len(), 1);
+}
+
+#[test]
 fn cwd_title_uses_directory_name() {
     assert_eq!(
         display_title_for_cwd(PathBuf::from("/tmp/example-repo").as_path()),

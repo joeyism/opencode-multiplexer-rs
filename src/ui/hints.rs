@@ -27,6 +27,12 @@ pub fn footer_line(focus: AppFocus, message: Option<&str>, keys: &Keybindings) -
         Span::raw(" new  "),
         Span::styled(keys.worktree.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" worktree  "),
+        Span::styled("r", Style::default().fg(Color::Cyan)),
+        Span::raw(" refresh  "),
+        Span::styled("!", Style::default().fg(Color::Cyan)),
+        Span::raw(" bash  "),
+        Span::styled("/", Style::default().fg(Color::Cyan)),
+        Span::raw(" search  "),
         Span::styled(keys.kill.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" kill  "),
         Span::styled(

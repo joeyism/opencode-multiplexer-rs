@@ -1281,6 +1281,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "crossterm 0.28.1",
+ "libc",
  "portable-pty",
  "pretty_assertions",
  "ratatui",

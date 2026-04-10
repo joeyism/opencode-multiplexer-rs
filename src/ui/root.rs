@@ -1,6 +1,8 @@
 use ratatui::{
     layout::Margin,
     text::Line,
+    style::{Color, Style},
+    text::Span,
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
@@ -27,22 +29,36 @@ pub fn render(
     show_help: bool,
     sidebar_width: u16,
     sidebar_collapsed: bool,
+    app_focused: bool,
 ) {
     let layout = split_root(frame.area(), sidebar_width, 1);
-    frame.render_widget(render_sidebar(rows, selected, focus, sidebar_collapsed, sidebar_width), layout.sidebar);
+    frame.render_widget(render_sidebar(rows, selected, focus, sidebar_collapsed, sidebar_width, app_focused), layout.sidebar);
     frame.render_widget(
         Line::from(footer_line(focus, footer_message, keys)),
         layout.footer,
     );
 
-    let block = Block::default().borders(Borders::NONE).title(match focus {
-        AppFocus::Sidebar => "opencode pane",
-        AppFocus::Terminal => "opencode pane [live]",
-    });
+    let main_border_style = if !app_focused {
+        Style::default().fg(Color::DarkGray)
+    } else if matches!(focus, AppFocus::Terminal) {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(main_border_style)
+        .title(Span::styled(
+            match focus {
+                AppFocus::Sidebar => " opencode ",
+                AppFocus::Terminal => " opencode [live] ",
+            },
+            main_border_style,
+        ));
     frame.render_widget(block, layout.main);
 
     let inner = layout.main.inner(Margin {
-        vertical: 0,
+        vertical: 1,
         horizontal: 0,
     });
     if let Some(pty) = manager.active_session() {
