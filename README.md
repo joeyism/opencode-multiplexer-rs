@@ -2,6 +2,10 @@
 
 A terminal multiplexer for managing [OpenCode](https://opencode.ai) sessions.
 
+<p align="center" width="100%">
+<video src="https://github.com/user-attachments/assets/93669f30-bb6c-4a71-935d-29541ee073ad" width="80%" controls></video>
+</p>
+
 ## Install
 
 **Cargo:**
