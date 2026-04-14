@@ -30,3 +30,25 @@ pub struct DbSessionSummary {
     pub time_updated: i64,
     pub archived: bool,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbConversationMessage {
+    pub id: String,
+    pub role: String,
+    pub time_created: i64,
+    pub completed: Option<i64>,
+    pub model_id: Option<String>,
+    pub agent: Option<String>,
+    pub parts: Vec<DbConversationPart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbConversationPart {
+    pub id: String,
+    pub part_type: String,
+    pub text: Option<String>,
+    pub tool: Option<String>,
+    pub tool_status: Option<String>,
+    pub tool_title: Option<String>,
+    pub tool_input: Option<String>,
+}

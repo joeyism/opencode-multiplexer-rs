@@ -4,9 +4,23 @@ pub fn reduce(state: &mut AppState, action: Action) {
     match action {
         Action::ToggleFocus => {
             state.focus = match state.focus {
-                AppFocus::Sidebar => AppFocus::Terminal,
-                AppFocus::Terminal => AppFocus::Sidebar,
+                AppFocus::Sidebar => state.last_main_focus,
+                AppFocus::Terminal | AppFocus::Conversation => {
+                    if state.focus == AppFocus::Conversation {
+                        state.last_main_focus = AppFocus::Terminal;
+                    }
+                    AppFocus::Sidebar
+                }
             };
+        }
+        Action::SetFocus(target) => {
+            match target {
+                AppFocus::Terminal | AppFocus::Conversation => {
+                    state.last_main_focus = target;
+                }
+                AppFocus::Sidebar => {}
+            }
+            state.focus = target;
         }
         Action::ToggleHelp => {
             state.show_help = !state.show_help;

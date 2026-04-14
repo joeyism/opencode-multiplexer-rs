@@ -9,6 +9,8 @@ pub struct AppState {
     pub selected_sidebar_row: usize,
     pub expanded_session_ids: HashSet<String>,
     pub app_focused: bool,
+    pub last_main_focus: AppFocus,
+    pub show_files: Vec<String>,
 }
 
 impl Default for AppState {
@@ -20,6 +22,8 @@ impl Default for AppState {
             selected_sidebar_row: 0,
             expanded_session_ids: HashSet::new(),
             app_focused: true,
+            last_main_focus: AppFocus::Terminal,
+            show_files: Vec::new(),
         }
     }
 }

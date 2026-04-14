@@ -119,7 +119,6 @@ impl PtyManager {
         Ok(())
     }
 
-
     pub fn attach_arbitrary_session(
         &mut self,
         session_id: String,
@@ -257,6 +256,40 @@ impl PtyManager {
         self.ptys.get(&id)?.as_ref()
     }
 
+    pub fn active_summary(&self) -> Option<&SessionSummary> {
+        let active_id = self.sessions.active_id()?;
+        self.sessions
+            .items()
+            .iter()
+            .find(|session| session.id == active_id)
+    }
+
+    pub fn reap_exited_ptys(&mut self) -> Vec<u64> {
+        let dead_ids: Vec<u64> = self
+            .ptys
+            .iter_mut()
+            .filter_map(|(&id, slot)| {
+                if let Some(pty) = slot.as_mut() {
+                    if !pty.is_alive() {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for &id in &dead_ids {
+            if let Some(slot) = self.ptys.get_mut(&id) {
+                *slot = None;
+            }
+        }
+
+        dead_ids
+    }
+
     pub fn drain_all_output(&mut self) {
         for pty in self.ptys.values_mut().filter_map(Option::as_mut) {
             pty.drain_output();
@@ -377,7 +410,12 @@ impl PtyManager {
         let Some(active_id) = self.sessions.active_id() else {
             return Ok(false);
         };
-        let summary = self.sessions.items().iter().find(|s| s.id == active_id).cloned();
+        let summary = self
+            .sessions
+            .items()
+            .iter()
+            .find(|s| s.id == active_id)
+            .cloned();
         let Some(summary) = summary else {
             return Ok(false);
         };
@@ -414,6 +452,11 @@ impl PtyManager {
             .filter(|session| session.origin == SessionOrigin::Managed)
             .filter_map(|session| session.session_id.clone())
             .collect()
+    }
+
+    #[doc(hidden)]
+    pub fn insert_pty_for_session(&mut self, id: u64, pty: PtySession) {
+        self.ptys.insert(id, Some(pty));
     }
 }
 

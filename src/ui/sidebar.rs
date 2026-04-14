@@ -136,11 +136,20 @@ pub fn render_sidebar(
     app_focused: bool,
 ) -> Paragraph<'static> {
     let (title_style, border_style) = if !app_focused {
-        (Style::default().fg(Color::DarkGray), Style::default().fg(Color::DarkGray))
+        (
+            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::DarkGray),
+        )
     } else if matches!(focus, AppFocus::Sidebar) {
-        (Style::default().fg(Color::Cyan), Style::default().fg(Color::Cyan))
+        (
+            Style::default().fg(Color::Cyan),
+            Style::default().fg(Color::Cyan),
+        )
     } else {
-        (Style::default().fg(Color::DarkGray), Style::default().fg(Color::DarkGray))
+        (
+            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::DarkGray),
+        )
     };
 
     let lines = rows

@@ -4,9 +4,10 @@ use ocmux_rs::{
     app::sessions::{SessionList, SessionOrigin, SessionStatus},
     data::poller::{DiscoveredSessionInfo, PollSnapshot},
     ops::opencode::{build_managed_session_command, build_replica_command, display_title_for_cwd},
-    terminal::manager::PtyManager,
+    terminal::{manager::PtyManager, pty::PtySession},
     ui::sidebar::flatten_sidebar_entries,
 };
+use portable_pty::CommandBuilder;
 
 #[test]
 fn flatten_sidebar_entries_hides_and_shows_children_based_on_expansion() {
@@ -184,7 +185,17 @@ fn replica_command_uses_session_flag() {
 #[test]
 fn manager_can_attach_arbitrary_session() {
     let mut manager = PtyManager::default();
-    manager.attach_arbitrary_session("sess_xyz".into(), PathBuf::from("/tmp/xyz"), "Arbitrary".into(), SessionStatus::Idle, Some(1234567890), 24, 80).unwrap();
+    manager
+        .attach_arbitrary_session(
+            "sess_xyz".into(),
+            PathBuf::from("/tmp/xyz"),
+            "Arbitrary".into(),
+            SessionStatus::Idle,
+            Some(1234567890),
+            24,
+            80,
+        )
+        .unwrap();
 
     let active = manager.active_session().unwrap();
     let summary = manager.selected_summary().unwrap();
@@ -359,4 +370,57 @@ fn sidebar_entries_sort_top_level_sessions_by_recent_update_first() {
 
     assert_eq!(entries[0].top_level_id, newer);
     assert_eq!(entries[1].top_level_id, older);
+}
+
+#[test]
+fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
+    let mut manager = PtyManager::default();
+
+    // Register a placeholder session
+    let id = manager.register_placeholder(
+        PathBuf::from("/tmp/test"),
+        "test".into(),
+        SessionStatus::Working,
+        None,
+        SessionOrigin::Managed,
+        None,
+        None,
+        None,
+        None,
+        false,
+        vec![],
+    );
+
+    // Spawn a short-lived process that exits immediately
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let mut cmd = CommandBuilder::new(shell);
+    cmd.args(["-c", "exit 0"]);
+    let pty = PtySession::spawn_test_command(cmd, 24, 80).expect("spawn test command");
+    manager.insert_pty_for_session(id, pty);
+
+    // Activate so active_session() returns something initially
+    manager.select_top_level(id);
+    manager.activate_selected();
+    assert!(
+        manager.active_session().is_some(),
+        "PTY should be active before exit"
+    );
+
+    // Wait briefly for the child to exit
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Reap should detect the dead child
+    let exited = manager.reap_exited_ptys();
+    assert!(exited.contains(&id), "should report exited session id");
+
+    // PTY slot cleared but sidebar entry preserved
+    assert!(
+        manager.active_session().is_none(),
+        "PTY should be cleared after reap"
+    );
+    assert_eq!(manager.len(), 1, "sidebar entry should be preserved");
+
+    // Second call returns empty — nothing left to reap
+    let exited_again = manager.reap_exited_ptys();
+    assert!(exited_again.is_empty(), "second reap should find nothing");
 }

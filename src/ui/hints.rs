@@ -13,9 +13,36 @@ pub fn footer_line(focus: AppFocus, message: Option<&str>, keys: &Keybindings) -
         )]);
     }
 
+    match focus {
+        AppFocus::Conversation => conversation_hints(keys),
+        _ => main_hints(focus, keys),
+    }
+}
+
+fn conversation_hints(keys: &Keybindings) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("j/k", Style::default().fg(Color::Cyan)),
+        Span::raw(" scroll  "),
+        Span::styled("G", Style::default().fg(Color::Cyan)),
+        Span::raw(" end  "),
+        Span::styled("g", Style::default().fg(Color::Cyan)),
+        Span::raw(" top  "),
+        Span::styled(keys.view.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" back  "),
+        Span::styled(keys.help.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" help  "),
+        Span::styled(
+            "[conversation]".to_string(),
+            Style::default().fg(Color::Yellow),
+        ),
+    ])
+}
+
+fn main_hints(focus: AppFocus, keys: &Keybindings) -> Line<'static> {
     let focus_label = match focus {
         AppFocus::Sidebar => "sidebar",
         AppFocus::Terminal => "terminal",
+        AppFocus::Conversation => "conversation",
     };
 
     Line::from(vec![
@@ -27,6 +54,10 @@ pub fn footer_line(focus: AppFocus, message: Option<&str>, keys: &Keybindings) -
         Span::raw(" new  "),
         Span::styled(keys.worktree.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" worktree  "),
+        Span::styled(keys.view.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" view  "),
+        Span::styled(keys.files.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" files  "),
         Span::styled("r", Style::default().fg(Color::Cyan)),
         Span::raw(" refresh  "),
         Span::styled("!", Style::default().fg(Color::Cyan)),

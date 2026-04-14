@@ -3,4 +3,5 @@ pub enum AppFocus {
     #[default]
     Sidebar,
     Terminal,
+    Conversation,
 }

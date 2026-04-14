@@ -30,6 +30,8 @@ pub struct Keybindings {
     pub help: char,
     pub worktree: char,
     pub quit: char,
+    pub view: char,
+    pub files: char,
 }
 
 impl Default for Keybindings {
@@ -42,6 +44,8 @@ impl Default for Keybindings {
             help: '?',
             worktree: 't',
             quit: 'q',
+            view: 'v',
+            files: 'f',
         }
     }
 }
@@ -61,6 +65,8 @@ struct PartialKeybindings {
     help: Option<String>,
     worktree: Option<String>,
     quit: Option<String>,
+    view: Option<String>,
+    files: Option<String>,
 }
 
 pub fn load_config() -> anyhow::Result<AppConfig> {
@@ -89,6 +95,8 @@ pub fn load_config_from_path(path: &Path) -> anyhow::Result<AppConfig> {
         apply_keybinding(&mut config.keybindings.help, bindings.help);
         apply_keybinding(&mut config.keybindings.worktree, bindings.worktree);
         apply_keybinding(&mut config.keybindings.quit, bindings.quit);
+        apply_keybinding(&mut config.keybindings.view, bindings.view);
+        apply_keybinding(&mut config.keybindings.files, bindings.files);
     }
 
     Ok(config)

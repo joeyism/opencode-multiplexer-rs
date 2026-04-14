@@ -115,11 +115,24 @@ impl PtySession {
         Ok(())
     }
 
+    pub fn is_alive(&mut self) -> bool {
+        match self.child.try_wait() {
+            Ok(Some(_)) => false, // exited
+            Ok(None) => true,     // still running
+            Err(_) => false,      // can't check → treat as dead
+        }
+    }
+
     pub fn kill(&mut self) -> std::io::Result<()> {
         self.child.kill()
     }
 
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
+    }
+
+    #[doc(hidden)]
+    pub fn spawn_test_command(cmd: CommandBuilder, rows: u16, cols: u16) -> anyhow::Result<Self> {
+        Self::spawn_command(cmd, rows, cols)
     }
 }

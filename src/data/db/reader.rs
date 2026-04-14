@@ -5,7 +5,10 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 use crate::{
     app::sessions::SessionStatus,
-    data::db::models::{DbProject, DbSession, DbSessionSummary, SessionPreview},
+    data::db::models::{
+        DbConversationMessage, DbConversationPart, DbProject, DbSession, DbSessionSummary,
+        SessionPreview,
+    },
 };
 
 pub struct DbReader {
@@ -25,7 +28,6 @@ impl DbReader {
     pub fn open_default() -> anyhow::Result<Self> {
         Self::open(&default_db_path()?)
     }
-
 
     pub fn get_all_sessions(&self) -> anyhow::Result<Vec<DbSessionSummary>> {
         let mut stmt = self.conn.prepare(
@@ -187,6 +189,15 @@ impl DbReader {
             if latest_running > 0 {
                 return Ok(SessionStatus::NeedsInput);
             }
+
+            let latest_pending: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM part p WHERE p.session_id = ?1 AND json_extract(p.data, '$.type') = 'tool' AND json_extract(p.data, '$.state.status') = 'pending' AND p.message_id = ?2",
+                params![session_id, message_id],
+                |row| row.get(0),
+            )?;
+            if latest_pending > 0 {
+                return Ok(SessionStatus::NeedsInput);
+            }
         }
 
         let child_running: i64 = self.conn.query_row(
@@ -224,7 +235,6 @@ impl DbReader {
             None => Ok(SessionStatus::Idle),
         }
     }
-
 
     pub fn get_session_modified_files(&self, session_id: &str) -> anyhow::Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
@@ -275,6 +285,115 @@ impl DbReader {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    pub fn get_conversation(&self, session_id: &str) -> anyhow::Result<Vec<DbConversationMessage>> {
+        let mut msg_stmt = self.conn.prepare(
+            "SELECT id, time_created,
+                    json_extract(data, '$.role'),
+                    json_extract(data, '$.time.completed'),
+                    json_extract(data, '$.modelID'),
+                    json_extract(data, '$.agent')
+             FROM message WHERE session_id = ?1 ORDER BY time_created ASC",
+        )?;
+        let msg_rows: Vec<(
+            String,
+            i64,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        )> = msg_stmt
+            .query_map([session_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut part_stmt = self.conn.prepare(
+            "SELECT p.id, p.message_id,
+                    json_extract(p.data, '$.type'),
+                    json_extract(p.data, '$.text'),
+                    json_extract(p.data, '$.tool'),
+                    json_extract(p.data, '$.state.status'),
+                    json_extract(p.data, '$.state.title'),
+                    COALESCE(
+                        json_extract(p.data, '$.state.input.filePath'),
+                        json_extract(p.data, '$.state.input.path'),
+                        json_extract(p.data, '$.state.input.command'),
+                        json_extract(p.data, '$.state.input.query'),
+                        json_extract(p.data, '$.state.input.pattern'),
+                        json_extract(p.data, '$.state.input.url'),
+                        json_extract(p.data, '$.state.input.description')
+                    )
+             FROM part p WHERE p.session_id = ?1 ORDER BY p.time_created ASC",
+        )?;
+        let part_rows: Vec<(
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = part_stmt
+            .query_map([session_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut parts_by_msg: std::collections::HashMap<String, Vec<DbConversationPart>> =
+            std::collections::HashMap::new();
+        for (id, message_id, part_type, text, tool, tool_status, tool_title, tool_input) in
+            part_rows
+        {
+            parts_by_msg
+                .entry(message_id)
+                .or_default()
+                .push(DbConversationPart {
+                    id,
+                    part_type: part_type.unwrap_or_default(),
+                    text,
+                    tool,
+                    tool_status,
+                    tool_title,
+                    tool_input,
+                });
+        }
+
+        let mut messages = Vec::new();
+        for (id, time_created, role, completed, model_id, agent) in msg_rows {
+            let parts = parts_by_msg.remove(&id).unwrap_or_default();
+            messages.push(DbConversationMessage {
+                id,
+                role: role.unwrap_or_default(),
+                time_created,
+                completed,
+                model_id,
+                agent,
+                parts,
+            });
+        }
+
+        Ok(messages)
     }
 }
 
