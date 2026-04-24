@@ -5,28 +5,29 @@ use std::{
 
 use crossterm::{
     event::{
-        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyModifiers,
-        MouseEventKind,
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ocmux_rs::{
     app::{
-        conversation::ConversationViewState, focus::AppFocus, reducer::reduce, state::AppState,
-        Action,
+        conversation::ConversationViewState, diff::DiffViewState, focus::AppFocus, reducer::reduce,
+        session_picker::SessionPickerState, state::AppState, Action,
     },
     config::load_config,
     data::{db::reader::DbReader, poller::start_poller},
+    ops::git::{diff_worktree, fetch_session_diff_from_serve},
     ops::worktree::create_worktree,
     ops::{
-        fzf::{pick_directory, pick_session},
+        fzf::pick_directory,
         opencode::display_title_for_cwd,
     },
     registry::save_managed_sessions,
     terminal::manager::PtyManager,
     ui::{
-        conversation, root,
+        conversation, diff as ui_diff, root,
         sidebar::{flatten_sidebar_entries, SidebarRowKind},
     },
 };
@@ -61,13 +62,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     result
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), Box<dyn Error>> {
+fn run(
+    mut terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+) -> Result<(), Box<dyn Error>> {
     let config = load_config().unwrap_or_default();
     let _ = ocmux_rs::registry::cleanup_stale_serve_entries();
     let mut state = AppState::default();
     let mut manager = PtyManager::default();
     let mut footer_message: Option<String> = None;
     let mut conversation = ConversationViewState::default();
+    let mut diff_view = DiffViewState::default();
+    let mut mouse_captured = false;
     let (poll_tx, poll_rx) = std::sync::mpsc::channel();
     let poller = start_poller(poll_tx);
 
@@ -98,7 +103,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     state.selected_sidebar_row = rows.len() - 1;
                 }
             }
-            let sidebar_width = if state.sidebar_collapsed {
+            let sidebar_width = if state.panel_hidden {
+                0
+            } else if state.sidebar_collapsed {
                 COLLAPSED_SIDEBAR_WIDTH
             } else {
                 config.sidebar_width
@@ -126,6 +133,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 }
             }
 
+            if let Some(picker) = state.session_picker.as_mut() {
+                picker.tick();
+            }
+
             terminal.draw(|frame| {
                 root::render(
                     frame,
@@ -139,8 +150,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     &state.show_files,
                     sidebar_width,
                     state.sidebar_collapsed,
+                    state.panel_hidden,
                     state.app_focused,
                     &conversation,
+                    &diff_view,
+                    state.session_picker.as_mut(),
+                    state.confirm_quit,
                 )
             })?;
 
@@ -149,6 +164,80 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
             }
 
             match event::read()? {
+                Event::Key(key) if state.session_picker.is_some() => {
+                    match key.code {
+                        KeyCode::Esc => {
+                            state.session_picker = None;
+                            footer_message = Some("search canceled".into());
+                        }
+                        KeyCode::Enter => {
+                            let entry = state
+                                .session_picker
+                                .as_ref()
+                                .and_then(|p| p.selected_entry());
+                            state.session_picker = None;
+                            if let Some(entry) = entry {
+                                match DbReader::open_default()
+                                    .and_then(|r| r.get_session_status(&entry.session_id))
+                                {
+                                    Ok(status) => {
+                                        let (rows, cols) = pane_size(
+                                            terminal.size()?.into(),
+                                            config.sidebar_width,
+                                        );
+                                        match manager.attach_arbitrary_session(
+                                            entry.session_id,
+                                            entry.dir_path,
+                                            entry.title.clone(),
+                                            status,
+                                            Some(entry.time_updated),
+                                            rows,
+                                            cols,
+                                        ) {
+                                            Ok(_) => {
+                                                save_managed_sessions(
+                                                    manager.managed_session_ids(),
+                                                )?;
+                                                state.focus = AppFocus::Terminal;
+                                                state.selected_sidebar_row = 0;
+                                                footer_message = None;
+                                            }
+                                            Err(error) => {
+                                                footer_message =
+                                                    Some(format!("attach failed: {error}"));
+                                            }
+                                        }
+                                    }
+                                    Err(error) => {
+                                        footer_message =
+                                            Some(format!("status lookup failed: {error}"));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Up => {
+                            if let Some(picker) = state.session_picker.as_mut() {
+                                picker.move_up();
+                            }
+                        }
+                        KeyCode::Down => {
+                            if let Some(picker) = state.session_picker.as_mut() {
+                                picker.move_down();
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            if let Some(picker) = state.session_picker.as_mut() {
+                                picker.backspace();
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            if let Some(picker) = state.session_picker.as_mut() {
+                                picker.insert_char(c);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 Event::Key(key)
                     if key.code == KeyCode::Char(config.keybindings.help)
                         && !matches!(state.focus, AppFocus::Terminal) =>
@@ -166,7 +255,48 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 {
                     state.show_files.clear();
                 }
-                Event::Key(key) if is_focus_toggle(key) => reduce(&mut state, Action::ToggleFocus),
+                Event::Key(key) if state.confirm_quit => match key.code {
+                    KeyCode::Char('y') => break,
+                    KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+                        state.confirm_quit = false;
+                    }
+                    _ => {}
+                },
+                Event::Key(key)
+                    if is_panel_toggle(key)
+                        && matches!(state.focus, AppFocus::Terminal | AppFocus::Sidebar) =>
+                {
+                    reduce(&mut state, Action::TogglePanelHidden);
+                    let new_sidebar_width = if state.panel_hidden {
+                        0
+                    } else if state.sidebar_collapsed {
+                        COLLAPSED_SIDEBAR_WIDTH
+                    } else {
+                        config.sidebar_width
+                    };
+                    let (pty_rows, pty_cols) =
+                        pane_size(terminal.size()?.into(), new_sidebar_width);
+                    if let Err(error) = manager.resize_active(pty_rows, pty_cols) {
+                        footer_message = Some(format!("resize failed: {error}"));
+                    }
+                }
+                Event::Key(key) if is_focus_toggle(key) => {
+                    if state.panel_hidden {
+                        reduce(&mut state, Action::TogglePanelHidden);
+                        let new_sidebar_width = if state.sidebar_collapsed {
+                            COLLAPSED_SIDEBAR_WIDTH
+                        } else {
+                            config.sidebar_width
+                        };
+                        let (pty_rows, pty_cols) =
+                            pane_size(terminal.size()?.into(), new_sidebar_width);
+                        if let Err(error) = manager.resize_active(pty_rows, pty_cols) {
+                            footer_message = Some(format!("resize failed: {error}"));
+                        }
+                    } else {
+                        reduce(&mut state, Action::ToggleFocus);
+                    }
+                }
                 Event::Key(key)
                     if matches!(state.focus, AppFocus::Sidebar)
                         && manager.pending_kill().is_some() =>
@@ -185,7 +315,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     }
                 }
                 Event::Key(key) if matches!(state.focus, AppFocus::Sidebar) => match key.code {
-                    KeyCode::Char(c) if c == config.keybindings.quit => break,
+                    KeyCode::Char(c) if c == config.keybindings.quit => {
+                        state.confirm_quit = true;
+                    }
                     KeyCode::Char(c) if c == config.keybindings.down => {
                         reduce(&mut state, Action::SelectNextRow)
                     }
@@ -268,32 +400,45 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             }
                         }
                     }
-                    KeyCode::Char('/') => match pick_session_with_terminal(terminal) {
-                        Ok(Some((session_id, cwd, title, status, time_updated))) => {
-                            let (rows, cols) =
-                                pane_size(terminal.size()?.into(), config.sidebar_width);
-                            match manager.attach_arbitrary_session(
-                                session_id,
-                                cwd,
-                                title.clone(),
-                                status,
-                                time_updated,
-                                rows,
-                                cols,
-                            ) {
-                                Ok(_) => {
-                                    save_managed_sessions(manager.managed_session_ids())?;
-                                    state.focus = AppFocus::Terminal;
-                                    state.selected_sidebar_row = 0;
-                                    footer_message = None;
+                    KeyCode::Char(c) if c == config.keybindings.diff => {
+                        if let Some(row) = rows.get(state.selected_sidebar_row) {
+                            if let Some(sid) = row.session_id.as_deref() {
+                                match resolve_session_diff(row, sid) {
+                                    Ok(diff) => {
+                                        let title = row.title.clone();
+                                        diff_view.open(
+                                            sid.to_string(),
+                                            title,
+                                            diff,
+                                            AppFocus::Sidebar,
+                                        );
+                                        let doc = ui_diff::build_diff_document(
+                                            diff_view.raw_diff(),
+                                            content_width,
+                                        );
+                                        diff_view.replace_document(doc, viewport_height);
+                                        reduce(&mut state, Action::SetFocus(AppFocus::Diff));
+                                        footer_message = None;
+                                    }
+                                    Err(msg) => {
+                                        footer_message = Some(msg);
+                                    }
                                 }
-                                Err(error) => {
-                                    footer_message = Some(format!("attach failed: {error}"))
-                                }
+                            } else {
+                                footer_message = Some("no session ID for this row".into());
                             }
                         }
-                        Ok(None) => footer_message = Some("search canceled".into()),
-                        Err(error) => footer_message = Some(format!("search failed: {error}")),
+                    }
+                    KeyCode::Char('/') => match SessionPickerState::load() {
+                        Ok(picker) if picker.total_count() > 0 => {
+                            state.session_picker = Some(picker);
+                        }
+                        Ok(_) => {
+                            footer_message = Some("no sessions found".into());
+                        }
+                        Err(error) => {
+                            footer_message = Some(format!("search failed: {error}"));
+                        }
                     },
                     KeyCode::Char(c) if c == config.keybindings.kill => {
                         if let Some(row) = rows.get(state.selected_sidebar_row) {
@@ -485,6 +630,33 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     }
                     _ => {}
                 },
+                Event::Paste(text)
+                    if matches!(state.focus, AppFocus::Conversation)
+                        && conversation.is_searching() =>
+                {
+                    conversation.search_insert_str(&text, viewport_height);
+                }
+                Event::Key(key)
+                    if matches!(state.focus, AppFocus::Conversation)
+                        && conversation.is_searching() =>
+                {
+                    let vp = viewport_height;
+                    match key.code {
+                        KeyCode::Char(c) => {
+                            conversation.search_insert(c, vp);
+                        }
+                        KeyCode::Backspace => {
+                            conversation.search_backspace(vp);
+                        }
+                        KeyCode::Enter => {
+                            conversation.confirm_search();
+                        }
+                        KeyCode::Esc => {
+                            conversation.cancel_search();
+                        }
+                        _ => {}
+                    }
+                }
                 Event::Key(key) if matches!(state.focus, AppFocus::Conversation) => {
                     let vp = viewport_height;
                     match key.code {
@@ -499,6 +671,15 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         }
                         KeyCode::Char('g') => {
                             conversation.scroll_to_top();
+                        }
+                        KeyCode::Char('/') => {
+                            conversation.start_search();
+                        }
+                        KeyCode::Char('n') => {
+                            conversation.next_match(vp);
+                        }
+                        KeyCode::Char('N') => {
+                            conversation.prev_match(vp);
                         }
                         KeyCode::PageUp | KeyCode::Char('u')
                             if key.modifiers.contains(KeyModifiers::CONTROL) =>
@@ -516,9 +697,93 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             reduce(&mut state, Action::SetFocus(return_focus));
                             footer_message = None;
                         }
-                        KeyCode::Char(c) if c == config.keybindings.quit => break,
+                        KeyCode::Char(c) if c == config.keybindings.quit => {
+                            state.confirm_quit = true;
+                        }
                         KeyCode::Esc => {
                             let return_focus = conversation.close();
+                            state.last_main_focus = AppFocus::Terminal;
+                            reduce(&mut state, Action::SetFocus(return_focus));
+                            footer_message = None;
+                        }
+                        _ => {}
+                    }
+                }
+                Event::Paste(text)
+                    if matches!(state.focus, AppFocus::Diff)
+                        && diff_view.is_searching() =>
+                {
+                    diff_view.search_insert_str(&text, viewport_height);
+                }
+                Event::Key(key)
+                    if matches!(state.focus, AppFocus::Diff)
+                        && diff_view.is_searching() =>
+                {
+                    let vp = viewport_height;
+                    match key.code {
+                        KeyCode::Char(c) => {
+                            diff_view.search_insert(c, vp);
+                        }
+                        KeyCode::Backspace => {
+                            diff_view.search_backspace(vp);
+                        }
+                        KeyCode::Enter => {
+                            diff_view.confirm_search();
+                        }
+                        KeyCode::Esc => {
+                            diff_view.cancel_search();
+                        }
+                        _ => {}
+                    }
+                }
+                Event::Key(key) if matches!(state.focus, AppFocus::Diff) => {
+                    let vp = viewport_height;
+                    match key.code {
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            diff_view.scroll_up(1);
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            diff_view.scroll_down(1, vp);
+                        }
+                        KeyCode::Char('G') => {
+                            diff_view.scroll_to_end(vp);
+                        }
+                        KeyCode::Char('g') => {
+                            diff_view.scroll_to_top();
+                        }
+                        KeyCode::Char('/') => {
+                            diff_view.start_search();
+                        }
+                        KeyCode::Char('n') => {
+                            diff_view.next_match(vp);
+                        }
+                        KeyCode::Char('N') => {
+                            diff_view.prev_match(vp);
+                        }
+                        KeyCode::PageUp | KeyCode::Char('u')
+                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            diff_view.scroll_up(vp.saturating_sub(1));
+                        }
+                        KeyCode::PageDown | KeyCode::Char('d')
+                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            diff_view.scroll_down(vp.saturating_sub(1), vp);
+                        }
+                        KeyCode::Char(c) if c == config.keybindings.diff => {
+                            let return_focus = diff_view.close();
+                            state.last_main_focus = AppFocus::Terminal;
+                            reduce(&mut state, Action::SetFocus(return_focus));
+                            footer_message = None;
+                        }
+                        KeyCode::Char(c) if c == config.keybindings.quit => {
+                            let return_focus = diff_view.close();
+                            state.last_main_focus = AppFocus::Terminal;
+                            reduce(&mut state, Action::SetFocus(return_focus));
+                            footer_message = None;
+                        }
+                        KeyCode::Esc => {
+                            let return_focus = diff_view.close();
                             state.last_main_focus = AppFocus::Terminal;
                             reduce(&mut state, Action::SetFocus(return_focus));
                             footer_message = None;
@@ -543,15 +808,39 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
                     if mouse.column < config.sidebar_width {
                         state.focus = AppFocus::Sidebar;
-                        let row = mouse.row.saturating_sub(1) as usize;
-                        while manager.selected_index() < row
-                            && manager.selected_index() + 1 < manager.len()
-                        {
-                            manager.select_next();
+                        let clicked_row = mouse.row.saturating_sub(1) as usize;
+                        if clicked_row < rows.len() {
+                            state.selected_sidebar_row = clicked_row;
                         }
-                        while manager.selected_index() > row {
-                            manager.select_prev();
-                        }
+                    }
+                }
+                Event::Mouse(mouse)
+                    if matches!(
+                        mouse.kind,
+                        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+                    ) =>
+                {
+                    let scroll_amount = 3;
+                    match state.focus {
+                        AppFocus::Conversation => match mouse.kind {
+                            MouseEventKind::ScrollUp => {
+                                conversation.scroll_up(scroll_amount);
+                            }
+                            MouseEventKind::ScrollDown => {
+                                conversation.scroll_down(scroll_amount, viewport_height);
+                            }
+                            _ => {}
+                        },
+                        AppFocus::Diff => match mouse.kind {
+                            MouseEventKind::ScrollUp => {
+                                diff_view.scroll_up(scroll_amount);
+                            }
+                            MouseEventKind::ScrollDown => {
+                                diff_view.scroll_down(scroll_amount, viewport_height);
+                            }
+                            _ => {}
+                        },
+                        _ => {}
                     }
                 }
                 Event::FocusGained => {
@@ -569,11 +858,28 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         footer_message = Some(format!("resize failed: {error}"));
                     }
                     conversation.clamp_scroll(height.saturating_sub(FOOTER_HEIGHT + 1) as usize);
+                    if diff_view.is_active() {
+                        let new_content_width = width.saturating_sub(sidebar_width);
+                        let new_vp = height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
+                        let doc =
+                            ui_diff::build_diff_document(diff_view.raw_diff(), new_content_width);
+                        diff_view.replace_document(doc, new_vp);
+                    }
                 }
                 _ => {}
             }
 
+            if matches!(state.focus, AppFocus::Terminal) {
+                if let Some(active_id) = manager.active_id() {
+                    if let Some(idx) = rows.iter().position(|r| {
+                        matches!(&r.kind, SidebarRowKind::TopLevel { top_level_id, .. } if *top_level_id == active_id)
+                    }) {
+                        state.selected_sidebar_row = idx;
+                    }
+                }
+            }
             prev_selected_kind = rows.get(state.selected_sidebar_row).map(|r| r.kind.clone());
+            sync_mouse_capture(&mut terminal, state.focus, &mut mouse_captured);
         }
 
         Ok(())
@@ -593,6 +899,10 @@ fn pane_size(area: ratatui::layout::Rect, sidebar_width: u16) -> (u16, u16) {
 
 fn is_focus_toggle(key: KeyEvent) -> bool {
     key.code == KeyCode::Char('4') && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+fn is_panel_toggle(key: KeyEvent) -> bool {
+    key.code == KeyCode::Char('h') && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 fn pick_directory_with_terminal(
@@ -629,63 +939,6 @@ fn prompt_text_with_terminal(
         }
         Err(_) => Ok(None),
     }
-}
-
-fn pick_session_with_terminal(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-) -> Result<
-    Option<(
-        String,
-        PathBuf,
-        String,
-        ocmux_rs::app::sessions::SessionStatus,
-        Option<i64>,
-    )>,
-    Box<dyn Error>,
-> {
-    leave_tui(terminal)?;
-
-    let reader = DbReader::open_default()?;
-    let all = reader.get_all_sessions()?;
-
-    let mut display_lines = Vec::new();
-    for session in &all {
-        let time_str =
-            ocmux_rs::ui::sidebar::relative_time_from_updated(Some(session.time_updated));
-        let repo = session
-            .worktree
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("?");
-        let label = format!("{}/{}", repo, session.title);
-        let display = format!("{}\t{}", label, time_str);
-        display_lines.push((session.id.clone(), display));
-    }
-
-    let picked = pick_session(display_lines)?;
-
-    enter_tui(terminal)?;
-
-    if let Some(id) = picked {
-        if let Some(session) = all.iter().find(|s| s.id == id) {
-            let cwd = if session.directory.as_os_str().is_empty() {
-                session.worktree.clone()
-            } else {
-                session.directory.clone()
-            };
-            let reader2 = DbReader::open_default()?;
-            let status = reader2.get_session_status(&id)?;
-            return Ok(Some((
-                id,
-                cwd,
-                session.title.clone(),
-                status,
-                Some(session.time_updated),
-            )));
-        }
-    }
-
-    Ok(None)
 }
 
 fn drop_to_bash(
@@ -801,6 +1054,23 @@ fn resolve_session_cwd(row: &ocmux_rs::ui::sidebar::SidebarVisibleRow) -> Option
     None
 }
 
+/// Resolve the diff for a session. Tries the opencode serve API first (targeted
+/// to the matching port), then falls back to a full worktree git diff.
+fn resolve_session_diff(
+    row: &ocmux_rs::ui::sidebar::SidebarVisibleRow,
+    sid: &str,
+) -> Result<String, String> {
+    let cwd = resolve_session_cwd(row).ok_or_else(|| "session directory not found".to_string())?;
+
+    // Try serve API first (targeted to the matching port only).
+    if let Some(diff) = fetch_session_diff_from_serve(sid, &cwd) {
+        return Ok(diff);
+    }
+
+    // Fall back to full worktree git diff (tracked + untracked).
+    diff_worktree(&cwd).map_err(|e| e.to_string())
+}
+
 fn leave_tui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> Result<(), Box<dyn Error>> {
@@ -827,4 +1097,21 @@ fn enter_tui(
     enable_raw_mode()?;
     terminal.clear()?;
     Ok(())
+}
+
+fn sync_mouse_capture(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    focus: AppFocus,
+    captured: &mut bool,
+) {
+    let want = matches!(focus, AppFocus::Conversation | AppFocus::Diff);
+    if want == *captured {
+        return;
+    }
+    if want {
+        let _ = execute!(terminal.backend_mut(), EnableMouseCapture);
+    } else {
+        let _ = execute!(terminal.backend_mut(), DisableMouseCapture);
+    }
+    *captured = want;
 }

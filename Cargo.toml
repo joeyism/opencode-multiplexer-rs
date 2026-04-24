@@ -1,6 +1,6 @@
 [package]
 name = "ocmux-rs"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 description = "A terminal multiplexer for managing OpenCode sessions"
 license = "Apache-2.0"
@@ -28,6 +28,7 @@ serde_json = "1"
 libc = "0.2"
 pulldown-cmark = "0.12"
 syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+nucleo = "0.5"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 

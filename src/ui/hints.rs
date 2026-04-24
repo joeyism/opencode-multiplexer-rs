@@ -15,6 +15,7 @@ pub fn footer_line(focus: AppFocus, message: Option<&str>, keys: &Keybindings) -
 
     match focus {
         AppFocus::Conversation => conversation_hints(keys),
+        AppFocus::Diff => diff_hints(keys),
         _ => main_hints(focus, keys),
     }
 }
@@ -27,8 +28,14 @@ fn conversation_hints(keys: &Keybindings) -> Line<'static> {
         Span::raw(" end  "),
         Span::styled("g", Style::default().fg(Color::Cyan)),
         Span::raw(" top  "),
+        Span::styled("/", Style::default().fg(Color::Cyan)),
+        Span::raw(" search  "),
+        Span::styled("n/N", Style::default().fg(Color::Cyan)),
+        Span::raw(" next/prev  "),
         Span::styled(keys.view.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" back  "),
+        Span::styled("\u{21e7}+click", Style::default().fg(Color::Cyan)),
+        Span::raw(" select  "),
         Span::styled(keys.help.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" help  "),
         Span::styled(
@@ -38,11 +45,34 @@ fn conversation_hints(keys: &Keybindings) -> Line<'static> {
     ])
 }
 
+fn diff_hints(keys: &Keybindings) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("j/k", Style::default().fg(Color::Cyan)),
+        Span::raw(" scroll  "),
+        Span::styled("G", Style::default().fg(Color::Cyan)),
+        Span::raw(" end  "),
+        Span::styled("g", Style::default().fg(Color::Cyan)),
+        Span::raw(" top  "),
+        Span::styled("/", Style::default().fg(Color::Cyan)),
+        Span::raw(" search  "),
+        Span::styled("n/N", Style::default().fg(Color::Cyan)),
+        Span::raw(" next/prev  "),
+        Span::styled(keys.diff.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" back  "),
+        Span::styled("\u{21e7}+click", Style::default().fg(Color::Cyan)),
+        Span::raw(" select  "),
+        Span::styled(keys.help.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" help  "),
+        Span::styled("[diff]".to_string(), Style::default().fg(Color::Yellow)),
+    ])
+}
+
 fn main_hints(focus: AppFocus, keys: &Keybindings) -> Line<'static> {
     let focus_label = match focus {
         AppFocus::Sidebar => "sidebar",
         AppFocus::Terminal => "terminal",
         AppFocus::Conversation => "conversation",
+        AppFocus::Diff => "diff",
     };
 
     Line::from(vec![
@@ -58,6 +88,8 @@ fn main_hints(focus: AppFocus, keys: &Keybindings) -> Line<'static> {
         Span::raw(" view  "),
         Span::styled(keys.files.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" files  "),
+        Span::styled(keys.diff.to_string(), Style::default().fg(Color::Cyan)),
+        Span::raw(" diff  "),
         Span::styled("r", Style::default().fg(Color::Cyan)),
         Span::raw(" refresh  "),
         Span::styled("!", Style::default().fg(Color::Cyan)),
@@ -71,6 +103,8 @@ fn main_hints(focus: AppFocus, keys: &Keybindings) -> Line<'static> {
             Style::default().fg(Color::Cyan),
         ),
         Span::raw(" move  "),
+        Span::styled("c-h", Style::default().fg(Color::Cyan)),
+        Span::raw(" hide  "),
         Span::styled(keys.help.to_string(), Style::default().fg(Color::Cyan)),
         Span::raw(" help  "),
         Span::styled(

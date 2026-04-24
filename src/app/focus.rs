@@ -4,4 +4,5 @@ pub enum AppFocus {
     Sidebar,
     Terminal,
     Conversation,
+    Diff,
 }

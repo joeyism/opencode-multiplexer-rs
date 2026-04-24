@@ -191,7 +191,7 @@ impl DbReader {
             }
 
             let latest_pending: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM part p WHERE p.session_id = ?1 AND json_extract(p.data, '$.type') = 'tool' AND json_extract(p.data, '$.state.status') = 'pending' AND p.message_id = ?2",
+                "SELECT COUNT(*) FROM part p WHERE p.session_id = ?1 AND json_extract(p.data, '$.type') = 'tool' AND json_extract(p.data, '$.tool') IN ('question', 'plan_exit') AND json_extract(p.data, '$.state.status') = 'pending' AND p.message_id = ?2",
                 params![session_id, message_id],
                 |row| row.get(0),
             )?;

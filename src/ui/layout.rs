@@ -23,3 +23,14 @@ pub fn split_root(area: Rect, sidebar_width: u16, footer_height: u16) -> RootLay
         footer,
     }
 }
+
+pub fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let width = area.width * percent_x / 100;
+    let height = area.height * percent_y / 100;
+    Rect::new(
+        area.x + (area.width.saturating_sub(width)) / 2,
+        area.y + (area.height.saturating_sub(height)) / 2,
+        width.max(1),
+        height.max(1),
+    )
+}

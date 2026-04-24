@@ -122,6 +122,43 @@ fn active_sidebar_rows_do_not_get_special_styling() {
 }
 
 #[test]
+fn selected_row_does_not_restyle_status_dot() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let entries = vec![SidebarEntry {
+        top_level_id: 1,
+        session_id: Some("sess_1".into()),
+        cwd: std::path::PathBuf::from("/tmp/delorean"),
+        title: "ADO-2228 build flux capacitor".into(),
+        status: ocmux_rs::app::sessions::SessionStatus::Working,
+        time_updated: Some(now - 120),
+        active: false,
+        origin: ocmux_rs::app::sessions::SessionOrigin::Managed,
+        has_children: false,
+        children: vec![],
+    }];
+
+    let rows = flatten_sidebar_entries(&entries, &HashSet::new());
+    let backend = TestBackend::new(22, 4);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.render_widget(
+                render_sidebar(&rows, 0, AppFocus::Sidebar, false, 20, true),
+                Rect::new(0, 0, 22, 4),
+            );
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer[(0, 1)].symbol(), "●");
+    assert_eq!(buffer[(0, 1)].fg, Color::Green);
+    assert_eq!(buffer[(0, 1)].bg, Color::Reset);
+}
+
+#[test]
 fn split_root_reserves_sidebar_and_footer() {
     let layout = split_root(Rect::new(0, 0, 120, 40), 28, 1);
 

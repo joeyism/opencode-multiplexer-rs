@@ -5,8 +5,8 @@ pub fn reduce(state: &mut AppState, action: Action) {
         Action::ToggleFocus => {
             state.focus = match state.focus {
                 AppFocus::Sidebar => state.last_main_focus,
-                AppFocus::Terminal | AppFocus::Conversation => {
-                    if state.focus == AppFocus::Conversation {
+                AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff => {
+                    if matches!(state.focus, AppFocus::Conversation | AppFocus::Diff) {
                         state.last_main_focus = AppFocus::Terminal;
                     }
                     AppFocus::Sidebar
@@ -15,7 +15,7 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
         Action::SetFocus(target) => {
             match target {
-                AppFocus::Terminal | AppFocus::Conversation => {
+                AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff => {
                     state.last_main_focus = target;
                 }
                 AppFocus::Sidebar => {}
@@ -41,6 +41,16 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
         Action::SetSelectedRow(row) => {
             state.selected_sidebar_row = row;
+        }
+        Action::TogglePanelHidden => {
+            if state.panel_hidden {
+                state.panel_hidden = false;
+                state.focus = AppFocus::Sidebar;
+            } else {
+                state.panel_hidden = true;
+                state.focus = AppFocus::Terminal;
+                state.last_main_focus = AppFocus::Terminal;
+            }
         }
     }
 }

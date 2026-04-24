@@ -5,6 +5,10 @@ pub fn key_event_to_bytes(event: KeyEvent) -> Option<Vec<u8>> {
     if event.code == KeyCode::Char('4') && event.modifiers.contains(KeyModifiers::CONTROL) {
         return None;
     }
+    // Don't forward the panel toggle (Ctrl-H)
+    if event.code == KeyCode::Char('h') && event.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
+    }
 
     let mods = event.modifiers;
     let has_alt = mods.contains(KeyModifiers::ALT);

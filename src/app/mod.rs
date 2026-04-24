@@ -1,6 +1,8 @@
 pub mod conversation;
+pub mod diff;
 pub mod focus;
 pub mod reducer;
+pub mod session_picker;
 pub mod sessions;
 pub mod state;
 
@@ -17,4 +19,5 @@ pub enum Action {
     SelectPrevRow,
     ToggleExpandSelected(String),
     SetSelectedRow(usize),
+    TogglePanelHidden,
 }

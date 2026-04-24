@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::PathBuf,
     process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
@@ -38,8 +37,6 @@ pub fn pick_directory() -> anyhow::Result<Option<PathBuf>> {
         "4".into(),
         "-name".into(),
         ".git".into(),
-        "-type".into(),
-        "d".into(),
     ]);
 
     let find_output = Command::new("find")
@@ -82,40 +79,4 @@ pub fn pick_directory() -> anyhow::Result<Option<PathBuf>> {
     }
 
     Ok(Some(PathBuf::from(selected)))
-}
-
-pub fn pick_session(sessions: Vec<(String, String)>) -> anyhow::Result<Option<String>> {
-    if sessions.is_empty() {
-        return Ok(None);
-    }
-    let mut fzf = Command::new("fzf")
-        .arg("--prompt=Attach session: ")
-        .arg("--with-nth=2..")
-        .arg("--delimiter=\t")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-
-    if let Some(mut stdin) = fzf.stdin.take() {
-        use std::io::Write;
-        for (id, display) in &sessions {
-            let _ = writeln!(stdin, "{}\t{}", id, display);
-        }
-    }
-
-    let output = fzf.wait_with_output()?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-
-    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if selected.is_empty() {
-        return Ok(None);
-    }
-
-    if let Some(id) = selected.split('\t').next() {
-        return Ok(Some(id.to_string()));
-    }
-    Ok(None)
 }

@@ -167,7 +167,7 @@ pub fn render_sidebar(
 
     Paragraph::new(lines).block(
         Block::default()
-            .borders(Borders::RIGHT)
+            .borders(Borders::RIGHT | Borders::TOP)
             .border_style(border_style)
             .title(Span::styled("sessions", title_style)),
     )
@@ -302,7 +302,7 @@ fn format_sidebar_parts(
     (padded_left, time_text)
 }
 
-fn repo_root_name(cwd: &Path) -> String {
+pub fn repo_root_name(cwd: &Path) -> String {
     for ancestor in cwd.ancestors() {
         let dot_git = ancestor.join(".git");
         if dot_git.is_dir() {
@@ -408,7 +408,7 @@ fn render_row(
     Line::from(vec![
         Span::styled(
             format!("{symbol} "),
-            Style::default().fg(color).patch(row_style),
+            Style::default().fg(color),
         ),
         Span::styled(left, row_style),
         Span::styled(format!(" {}", right), row_style),
