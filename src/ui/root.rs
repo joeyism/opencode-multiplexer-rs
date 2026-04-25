@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Margin, Rect},
+    layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -18,6 +18,7 @@ use crate::{
         hints::footer_line,
         layout::{centered_rect, split_root},
         session_picker::render_session_picker,
+        diff::apply_cursor_and_selection,
         sidebar::{render_sidebar, repo_root_name, SidebarVisibleRow},
     },
 };
@@ -56,7 +57,7 @@ pub fn render(
         );
     }
     frame.render_widget(
-        Line::from(footer_line(focus, footer_message, keys)),
+        Line::from(footer_line(focus, footer_message, keys, diff.is_visual())),
         layout.footer,
     );
 
@@ -107,10 +108,12 @@ pub fn render(
         .title(Span::styled(title_text, main_border_style));
     frame.render_widget(block, layout.main);
 
-    let inner = layout.main.inner(Margin {
-        vertical: 1,
-        horizontal: 0,
-    });
+    let inner = Rect::new(
+        layout.main.x,
+        layout.main.y + 1,
+        layout.main.width,
+        layout.main.height.saturating_sub(1),
+    );
     let _viewport_height = inner.height as usize;
 
     if matches!(focus, AppFocus::Conversation) && conversation.is_active() {
@@ -242,6 +245,14 @@ pub fn render(
         } else {
             visible
         };
+
+        // Apply cursor and visual-selection highlights.
+        let visible = apply_cursor_and_selection(
+            visible,
+            diff.scroll_offset(),
+            diff.cursor(),
+            diff.selection_range(),
+        );
 
         frame.render_widget(Paragraph::new(visible), content_area);
 

@@ -2,13 +2,24 @@ use ratatui::text::Line;
 
 use crate::app::focus::AppFocus;
 
+/// Metadata for a single rendered diff line, mapping it back to source location.
+#[derive(Clone, Debug)]
+pub struct LineMeta {
+    pub filepath: String,
+    pub new_line_no: Option<usize>,
+    pub old_line_no: Option<usize>,
+}
+
 pub struct DiffViewState {
     session_id: Option<String>,
     session_title: String,
     raw_diff: String,
     return_focus: AppFocus,
     document: Vec<Line<'static>>,
+    metadata: Vec<Option<LineMeta>>,
     scroll: usize,
+    cursor: usize,
+    selection_anchor: Option<usize>,
     // Search state
     search_query: String,
     search_active: bool,
@@ -24,7 +35,10 @@ impl Default for DiffViewState {
             raw_diff: String::new(),
             return_focus: AppFocus::Sidebar,
             document: Vec::new(),
+            metadata: Vec::new(),
             scroll: 0,
+            cursor: 0,
+            selection_anchor: None,
             search_query: String::new(),
             search_active: false,
             match_positions: Vec::new(),
@@ -46,7 +60,10 @@ impl DiffViewState {
         self.raw_diff = raw_diff;
         self.return_focus = return_focus;
         self.document.clear();
+        self.metadata.clear();
         self.scroll = 0;
+        self.cursor = 0;
+        self.selection_anchor = None;
         self.search_query.clear();
         self.search_active = false;
         self.match_positions.clear();
@@ -57,7 +74,10 @@ impl DiffViewState {
         self.session_id = None;
         self.raw_diff.clear();
         self.document.clear();
+        self.metadata.clear();
         self.scroll = 0;
+        self.cursor = 0;
+        self.selection_anchor = None;
         self.search_query.clear();
         self.search_active = false;
         self.match_positions.clear();
@@ -73,11 +93,26 @@ impl DiffViewState {
         &self.raw_diff
     }
 
-    pub fn replace_document(&mut self, lines: Vec<Line<'static>>, viewport_height: usize) {
+    pub fn replace_document(
+        &mut self,
+        lines: Vec<Line<'static>>,
+        meta: Vec<Option<LineMeta>>,
+        viewport_height: usize,
+    ) {
         self.document = lines;
-        if self.scroll >= self.document.len() {
-            let max = self.document.len().saturating_sub(viewport_height);
-            self.scroll = max;
+        self.metadata = meta;
+        let max_idx = self.document.len().saturating_sub(1);
+        if self.cursor > max_idx {
+            self.cursor = max_idx;
+        }
+        if let Some(ref mut anchor) = self.selection_anchor {
+            if *anchor > max_idx {
+                *anchor = max_idx;
+            }
+        }
+        let max_scroll = self.document.len().saturating_sub(viewport_height);
+        if self.scroll > max_scroll {
+            self.scroll = max_scroll;
         }
     }
 
@@ -113,6 +148,136 @@ impl DiffViewState {
 
     pub fn scroll_offset(&self) -> usize {
         self.scroll
+    }
+
+    // -----------------------------------------------------------------------
+    // Cursor & Visual Selection
+    // -----------------------------------------------------------------------
+
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Move cursor up by `amount` lines, keeping it in bounds and visible.
+    pub fn move_cursor_up(&mut self, amount: usize, _vp: usize) {
+        self.cursor = self.cursor.saturating_sub(amount);
+        if self.cursor < self.scroll {
+            self.scroll = self.cursor;
+        }
+    }
+
+    /// Move cursor down by `amount` lines, keeping it in bounds and visible.
+    pub fn move_cursor_down(&mut self, amount: usize, vp: usize) {
+        let max_idx = self.document.len().saturating_sub(1);
+        self.cursor = (self.cursor + amount).min(max_idx);
+        if self.cursor >= self.scroll + vp {
+            let max_scroll = self.document.len().saturating_sub(vp);
+            self.scroll = (self.cursor.saturating_sub(vp) + 1).min(max_scroll);
+        }
+    }
+
+    /// Move cursor to the top of the document.
+    pub fn move_cursor_to_top(&mut self, _vp: usize) {
+        self.cursor = 0;
+        self.scroll = 0;
+    }
+
+    /// Move cursor to the end of the document.
+    pub fn move_cursor_to_end(&mut self, vp: usize) {
+        let max_idx = self.document.len().saturating_sub(1);
+        self.cursor = max_idx;
+        let max_scroll = self.document.len().saturating_sub(vp);
+        self.scroll = max_scroll;
+    }
+
+    /// Ensure the cursor is visible within the viewport.
+    fn ensure_cursor_visible(&mut self, vp: usize) {
+        if self.cursor < self.scroll {
+            self.scroll = self.cursor;
+        } else if self.cursor >= self.scroll + vp {
+            let max_scroll = self.document.len().saturating_sub(vp);
+            self.scroll = self.cursor.saturating_sub(vp - 1).min(max_scroll);
+        }
+    }
+
+    /// Toggle visual selection mode.
+    pub fn toggle_visual(&mut self) {
+        if self.selection_anchor.is_some() {
+            self.selection_anchor = None;
+        } else {
+            self.selection_anchor = Some(self.cursor);
+        }
+    }
+
+    /// Cancel visual selection mode without clearing the cursor.
+    pub fn cancel_visual(&mut self) {
+        self.selection_anchor = None;
+    }
+
+    pub fn is_visual(&self) -> bool {
+        self.selection_anchor.is_some()
+    }
+
+    /// Returns `(start, end)` inclusive range of the selection, if active.
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
+        self.selection_anchor.map(|anchor| {
+            let lo = anchor.min(self.cursor);
+            let hi = anchor.max(self.cursor);
+            (lo, hi)
+        })
+    }
+
+    pub fn metadata(&self) -> &[Option<LineMeta>] {
+        &self.metadata
+    }
+
+    /// Format the current selection as a paste-able string.
+    /// Returns `None` if no selection is active or no valid lines are found.
+    pub fn format_selection(&self) -> Option<String> {
+        let (start, end) = self.selection_range()?;
+        let mut files: Vec<(String, usize, usize)> = Vec::new();
+
+        for entry in self.metadata.iter().take(end + 1).skip(start) {
+            let Some(LineMeta {
+                filepath,
+                new_line_no,
+                old_line_no: _,
+            }) = entry
+            else {
+                continue;
+            };
+            if filepath == "/dev/null" {
+                continue;
+            }
+            let Some(ln) = new_line_no else {
+                continue;
+            };
+            if let Some((_, existing_min, existing_max)) =
+                files.iter_mut().find(|(f, _, _)| f == filepath)
+            {
+                *existing_min = (*existing_min).min(*ln);
+                *existing_max = (*existing_max).max(*ln);
+            } else {
+                files.push((filepath.clone(), *ln, *ln));
+            }
+        }
+
+        if files.is_empty() {
+            return None;
+        }
+
+        let parts: Vec<String> = files
+            .into_iter()
+            .map(|(path, lo, hi)| {
+                if lo == hi {
+                    format!("{path}:{lo}")
+                } else {
+                    format!("{path}:{lo}-{hi}")
+                }
+            })
+            .collect();
+
+        Some(parts.join(" "))
     }
 
     // -----------------------------------------------------------------------
@@ -383,5 +548,132 @@ mod tests {
         // Scroll should have moved to make line 50 visible.
         assert!(state.scroll <= 50);
         assert!(state.scroll + 20 > 50);
+    }
+
+    // -----------------------------------------------------------------------
+    // Cursor & visual selection tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cursor_clamps_on_shrink() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b", "c", "d", "e"]);
+        state.cursor = 4;
+        state.replace_document(make_document(&["a"]), vec![], 10);
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn selection_anchor_clamps_on_shrink() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b", "c"]);
+        state.selection_anchor = Some(2);
+        state.replace_document(make_document(&["a"]), vec![], 10);
+        assert_eq!(state.selection_anchor, Some(0));
+    }
+
+    #[test]
+    fn toggle_visual_sets_and_clears_anchor() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b"]);
+        state.cursor = 1;
+
+        assert!(!state.is_visual());
+        state.toggle_visual();
+        assert!(state.is_visual());
+        assert_eq!(state.selection_anchor, Some(1));
+
+        state.toggle_visual();
+        assert!(!state.is_visual());
+        assert!(state.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn selection_range_returns_correct_bounds() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b", "c", "d"]);
+        state.cursor = 3;
+        state.selection_anchor = Some(1);
+        assert_eq!(state.selection_range(), Some((1, 3)));
+
+        // reverse anchor/cursor
+        state.cursor = 0;
+        state.selection_anchor = Some(3);
+        assert_eq!(state.selection_range(), Some((0, 3)));
+    }
+
+    #[test]
+    fn format_selection_skips_none_and_deleted() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b", "c"]);
+        state.metadata = vec![
+            Some(LineMeta {
+                filepath: "foo.rs".into(),
+                new_line_no: Some(10),
+                old_line_no: Some(5),
+            }),
+            None,
+            Some(LineMeta {
+                filepath: "/dev/null".into(),
+                new_line_no: Some(99),
+                old_line_no: Some(50),
+            }),
+        ];
+        state.selection_anchor = Some(0);
+        state.cursor = 2;
+
+        let result = state.format_selection();
+        assert_eq!(result, Some("foo.rs:10".to_string()));
+    }
+
+    #[test]
+    fn format_selection_groups_by_file() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b", "c", "d"]);
+        state.metadata = vec![
+            Some(LineMeta {
+                filepath: "bar.rs".into(),
+                new_line_no: Some(5),
+                old_line_no: None,
+            }),
+            Some(LineMeta {
+                filepath: "bar.rs".into(),
+                new_line_no: Some(20),
+                old_line_no: None,
+            }),
+            Some(LineMeta {
+                filepath: "foo.rs".into(),
+                new_line_no: Some(42),
+                old_line_no: None,
+            }),
+            Some(LineMeta {
+                filepath: "foo.rs".into(),
+                new_line_no: Some(58),
+                old_line_no: None,
+            }),
+        ];
+        state.selection_anchor = Some(0);
+        state.cursor = 3;
+
+        let result = state.format_selection();
+        assert_eq!(result, Some("bar.rs:5-20 foo.rs:42-58".to_string()));
+    }
+
+    #[test]
+    fn format_selection_returns_none_when_no_valid_lines() {
+        let mut state = DiffViewState::default();
+        state.session_id = Some("test".into());
+        state.document = make_document(&["a", "b"]);
+        state.metadata = vec![None, None];
+        state.selection_anchor = Some(0);
+        state.cursor = 1;
+
+        assert!(state.format_selection().is_none());
     }
 }

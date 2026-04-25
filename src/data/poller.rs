@@ -15,7 +15,7 @@ use crate::data::{
         ps::{scan_processes, scan_serve_processes},
     },
 };
-use crate::registry::load_managed_sessions;
+use crate::registry::{load_managed_sessions, load_serve_registry};
 use chrono::DateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,8 +105,17 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
     let mut sessions = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut offsets: HashMap<String, usize> = HashMap::new();
+    let managed_tui_pids: std::collections::HashSet<u32> =
+        load_serve_registry()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|e| e.tui_pid)
+            .collect();
 
     for process in processes {
+        if process.session_id.is_none() && managed_tui_pids.contains(&process.pid) {
+            continue;
+        }
         let Some(cwd) = cwd_for_pid(process.pid)? else {
             continue;
         };

@@ -57,6 +57,7 @@ pub struct ServeEntry {
     pub port: u16,
     pub pid: u32,
     pub cwd: String,
+    pub tui_pid: Option<u32>,
 }
 
 pub fn load_serve_registry() -> anyhow::Result<Vec<ServeEntry>> {
@@ -82,6 +83,12 @@ pub fn cleanup_stale_serve_entries() -> anyhow::Result<Vec<ServeEntry>> {
     let alive: Vec<ServeEntry> = entries
         .into_iter()
         .filter(|entry| is_pid_alive(entry.pid))
+        .map(|mut entry| {
+            if entry.tui_pid.is_some_and(|pid| !is_pid_alive(pid)) {
+                entry.tui_pid = None;
+            }
+            entry
+        })
         .collect();
     save_serve_registry(&alive)?;
     Ok(alive)
@@ -94,8 +101,18 @@ pub fn register_serve_process(port: u16, pid: u32, cwd: &Path) -> anyhow::Result
         port,
         pid,
         cwd: cwd.display().to_string(),
+        tui_pid: None,
     });
     save_serve_registry(&entries)
+}
+
+pub fn update_serve_registry_tui_pid(port: u16, tui_pid: u32) -> anyhow::Result<()> {
+    let mut entries = load_serve_registry().unwrap_or_default();
+    if let Some(entry) = entries.iter_mut().find(|e| e.port == port) {
+        entry.tui_pid = Some(tui_pid);
+        save_serve_registry(&entries)?;
+    }
+    Ok(())
 }
 
 fn is_pid_alive(pid: u32) -> bool {

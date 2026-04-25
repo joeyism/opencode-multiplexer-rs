@@ -412,11 +412,11 @@ fn run(
                                             diff,
                                             AppFocus::Sidebar,
                                         );
-                                        let doc = ui_diff::build_diff_document(
+                                        let (doc, meta) = ui_diff::build_diff_document(
                                             diff_view.raw_diff(),
                                             content_width,
                                         );
-                                        diff_view.replace_document(doc, viewport_height);
+                                        diff_view.replace_document(doc, meta, viewport_height);
                                         reduce(&mut state, Action::SetFocus(AppFocus::Diff));
                                         footer_message = None;
                                     }
@@ -740,18 +740,31 @@ fn run(
                     let vp = viewport_height;
                     match key.code {
                         KeyCode::Char('k') | KeyCode::Up => {
-                            diff_view.scroll_up(1);
+                            diff_view.move_cursor_up(1, vp);
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            diff_view.scroll_down(1, vp);
+                            diff_view.move_cursor_down(1, vp);
                         }
                         KeyCode::Char('G') => {
-                            diff_view.scroll_to_end(vp);
+                            diff_view.move_cursor_to_end(vp);
                         }
                         KeyCode::Char('g') => {
-                            diff_view.scroll_to_top();
+                            diff_view.move_cursor_to_top(vp);
                         }
-                        KeyCode::Char('/') => {
+                        KeyCode::PageUp | KeyCode::Char('u')
+                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            diff_view.move_cursor_up(vp.saturating_sub(1), vp);
+                        }
+                        KeyCode::PageDown | KeyCode::Char('d')
+                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            diff_view.move_cursor_down(vp.saturating_sub(1), vp);
+                        }
+                        KeyCode::Char('v') => {
+                            diff_view.toggle_visual();
+                        }
+                        KeyCode::Char('/') if !diff_view.is_visual() => {
                             diff_view.start_search();
                         }
                         KeyCode::Char('n') => {
@@ -760,15 +773,21 @@ fn run(
                         KeyCode::Char('N') => {
                             diff_view.prev_match(vp);
                         }
-                        KeyCode::PageUp | KeyCode::Char('u')
-                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                        {
-                            diff_view.scroll_up(vp.saturating_sub(1));
-                        }
-                        KeyCode::PageDown | KeyCode::Char('d')
-                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                        {
-                            diff_view.scroll_down(vp.saturating_sub(1), vp);
+                        KeyCode::Enter => {
+                            if diff_view.is_visual() {
+                                if let Some(text) = diff_view.format_selection() {
+                                    diff_view.close();
+                                    state.last_main_focus = AppFocus::Terminal;
+                                    reduce(&mut state, Action::SetFocus(AppFocus::Terminal));
+                                    if let Some(pty) = manager.active_session_mut() {
+                                        let _ = pty.send_paste(&text);
+                                    }
+                                    footer_message = None;
+                                } else {
+                                    footer_message =
+                                        Some("No valid lines in selection".to_string());
+                                }
+                            }
                         }
                         KeyCode::Char(c) if c == config.keybindings.diff => {
                             let return_focus = diff_view.close();
@@ -783,10 +802,14 @@ fn run(
                             footer_message = None;
                         }
                         KeyCode::Esc => {
-                            let return_focus = diff_view.close();
-                            state.last_main_focus = AppFocus::Terminal;
-                            reduce(&mut state, Action::SetFocus(return_focus));
-                            footer_message = None;
+                            if diff_view.is_visual() {
+                                diff_view.cancel_visual();
+                            } else {
+                                let return_focus = diff_view.close();
+                                state.last_main_focus = AppFocus::Terminal;
+                                reduce(&mut state, Action::SetFocus(return_focus));
+                                footer_message = None;
+                            }
                         }
                         _ => {}
                     }
@@ -861,9 +884,9 @@ fn run(
                     if diff_view.is_active() {
                         let new_content_width = width.saturating_sub(sidebar_width);
                         let new_vp = height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
-                        let doc =
+                        let (doc, meta) =
                             ui_diff::build_diff_document(diff_view.raw_diff(), new_content_width);
-                        diff_view.replace_document(doc, new_vp);
+                        diff_view.replace_document(doc, meta, new_vp);
                     }
                 }
                 _ => {}

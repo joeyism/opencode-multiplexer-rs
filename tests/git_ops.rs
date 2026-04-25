@@ -225,8 +225,8 @@ fn find_serve_port_exact_match() {
     let dir = fs::canonicalize(&dir).unwrap();
 
     let entries = vec![
-        ServeEntry { port: 4200, pid: 1, cwd: "/some/other/path".to_string() },
-        ServeEntry { port: 4201, pid: 2, cwd: dir.display().to_string() },
+        ServeEntry { port: 4200, pid: 1, cwd: "/some/other/path".to_string(), tui_pid: None },
+        ServeEntry { port: 4201, pid: 2, cwd: dir.display().to_string(), tui_pid: None },
     ];
 
     let port = find_serve_port_for_cwd_with_entries(&dir, &entries);
@@ -245,7 +245,7 @@ fn find_serve_port_no_match_returns_none_for_nonexistent_paths() {
     // They share "/" with the session dir so common_ancestor_depth > 0,
     // but this tests that the function doesn't panic.
     let entries = vec![
-        ServeEntry { port: 4200, pid: 1, cwd: "/totally/unrelated/path".to_string() },
+        ServeEntry { port: 4200, pid: 1, cwd: "/totally/unrelated/path".to_string(), tui_pid: None },
     ];
 
     let _port = find_serve_port_for_cwd_with_entries(&dir, &entries);
@@ -263,9 +263,9 @@ fn find_serve_port_prefers_exact_over_ancestor() {
 
     let entries = vec![
         // Parent directory — longer common ancestor but not exact.
-        ServeEntry { port: 4200, pid: 1, cwd: parent.display().to_string() },
+        ServeEntry { port: 4200, pid: 1, cwd: parent.display().to_string(), tui_pid: None },
         // Exact match.
-        ServeEntry { port: 4201, pid: 2, cwd: dir.display().to_string() },
+        ServeEntry { port: 4201, pid: 2, cwd: dir.display().to_string(), tui_pid: None },
     ];
 
     let port = find_serve_port_for_cwd_with_entries(&dir, &entries);
@@ -283,7 +283,7 @@ fn find_serve_port_trailing_slash() {
     // Entry cwd has trailing slash — canonicalize should strip it.
     let cwd_with_slash = format!("{}/", dir.display());
     let entries = vec![
-        ServeEntry { port: 4205, pid: 3, cwd: cwd_with_slash },
+        ServeEntry { port: 4205, pid: 3, cwd: cwd_with_slash, tui_pid: None },
     ];
 
     let port = find_serve_port_for_cwd_with_entries(&dir, &entries);

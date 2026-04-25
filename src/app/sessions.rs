@@ -23,6 +23,7 @@ pub struct SessionSummary {
     pub session_id: Option<String>,
     pub origin: SessionOrigin,
     pub process_pid: Option<u32>,
+    pub serve_pid: Option<u32>,
     pub model: Option<String>,
     pub preview: Option<String>,
     pub time_updated: Option<i64>,
@@ -48,6 +49,7 @@ impl SessionList {
         session_id: Option<String>,
         origin: SessionOrigin,
         process_pid: Option<u32>,
+        serve_pid: Option<u32>,
         model: Option<String>,
         preview: Option<String>,
         time_updated: Option<i64>,
@@ -64,6 +66,7 @@ impl SessionList {
             session_id,
             origin,
             process_pid,
+            serve_pid,
             model,
             preview,
             time_updated,
@@ -87,7 +90,10 @@ impl SessionList {
     pub fn find_by_process_pid(&self, process_pid: u32) -> Option<u64> {
         self.sessions
             .iter()
-            .find(|session| session.process_pid == Some(process_pid))
+            .find(|session| {
+                session.process_pid == Some(process_pid)
+                    || session.serve_pid == Some(process_pid)
+            })
             .map(|session| session.id)
     }
 

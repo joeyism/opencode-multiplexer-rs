@@ -3,20 +3,35 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::app::diff::LineMeta;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-pub fn build_diff_document(diff_output: &str, width: u16) -> Vec<Line<'static>> {
+pub fn build_diff_document(
+    diff_output: &str,
+    width: u16,
+) -> (Vec<Line<'static>>, Vec<Option<LineMeta>>) {
     if diff_output.trim().is_empty() {
-        return vec![Line::from(Span::styled(
-            "No uncommitted changes.",
-            Style::default().fg(Color::DarkGray),
-        ))];
+        return (
+            vec![Line::from(Span::styled(
+                "No uncommitted changes.",
+                Style::default().fg(Color::DarkGray),
+            ))],
+            vec![None],
+        );
     }
 
     let parsed = parse_unified_diff(diff_output);
     let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut meta: Vec<Option<LineMeta>> = Vec::new();
+
+    // Helper closure to keep lines and meta in sync.
+    let mut push = |line: Line<'static>, m: Option<LineMeta>| {
+        lines.push(line);
+        meta.push(m);
+    };
 
     let divider_w: u16 = 1;
     let left_width = (width.saturating_sub(divider_w)) / 2;
@@ -24,49 +39,63 @@ pub fn build_diff_document(diff_output: &str, width: u16) -> Vec<Line<'static>> 
 
     for (file_idx, file) in parsed.files.iter().enumerate() {
         if file_idx > 0 {
-            lines.push(Line::from(Span::raw("")));
+            push(Line::from(Span::raw("")), None);
         }
 
         // File header
-        lines.push(render_file_header(file, width));
+        push(render_file_header(file, width), None);
 
         // Metadata lines (index, new file mode, etc.)
-        for meta in &file.meta {
-            lines.push(Line::from(Span::styled(
-                truncate_pad(meta, width as usize),
-                Style::default().fg(Color::DarkGray),
-            )));
+        for file_meta in &file.meta {
+            push(
+                Line::from(Span::styled(
+                    truncate_pad(file_meta, width as usize),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                None,
+            );
         }
 
         // Compute line-number gutter width for this file
         let line_no_width = compute_line_no_width(file);
 
         for hunk in &file.hunks {
-            lines.push(render_hunk_header(&hunk.header, width));
+            push(render_hunk_header(&hunk.header, width), None);
 
             for row in &hunk.rows {
                 match row {
                     DiffRow::Pair { left, right } => {
-                        lines.push(render_pair_row(
-                            left.as_ref(),
-                            right.as_ref(),
-                            left_width,
-                            right_width,
-                            line_no_width,
-                        ));
+                        let line_meta = LineMeta {
+                            filepath: file.new_path.clone(),
+                            new_line_no: right.as_ref().map(|c| c.line_no),
+                            old_line_no: left.as_ref().map(|c| c.line_no),
+                        };
+                        push(
+                            render_pair_row(
+                                left.as_ref(),
+                                right.as_ref(),
+                                left_width,
+                                right_width,
+                                line_no_width,
+                            ),
+                            Some(line_meta),
+                        );
                     }
                     DiffRow::Note(text) => {
-                        lines.push(Line::from(Span::styled(
-                            truncate_pad(text, width as usize),
-                            Style::default().fg(Color::DarkGray),
-                        )));
+                        push(
+                            Line::from(Span::styled(
+                                truncate_pad(text, width as usize),
+                                Style::default().fg(Color::DarkGray),
+                            )),
+                            None,
+                        );
                     }
                 }
             }
         }
     }
 
-    lines
+    (lines, meta)
 }
 
 /// Apply search-match highlighting to visible lines.
@@ -155,6 +184,52 @@ pub fn highlight_search_matches(
             }
 
             Line::from(result_spans)
+        })
+        .collect()
+}
+
+/// Apply cursor and visual-selection highlighting to visible lines.
+///
+/// `lines` are the visible slice. `scroll_offset` is the document row index of
+/// the first visible line. `cursor` is the absolute cursor row. `selection_range`
+/// is an inclusive `(start, end)` range when visual mode is active.
+pub fn apply_cursor_and_selection(
+    lines: Vec<Line<'static>>,
+    scroll_offset: usize,
+    cursor: usize,
+    selection_range: Option<(usize, usize)>,
+) -> Vec<Line<'static>> {
+    let cursor_style = Style::default().bg(Color::Rgb(60, 60, 100));
+    let selection_style = Style::default().bg(Color::Rgb(50, 50, 80));
+
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(vis_idx, line)| {
+            let abs_idx = scroll_offset + vis_idx;
+            let is_cursor = abs_idx == cursor;
+            let is_selected = selection_range
+                .map(|(lo, hi)| abs_idx >= lo && abs_idx <= hi)
+                .unwrap_or(false);
+
+            if !is_cursor && !is_selected {
+                return line;
+            }
+
+            let highlight = if is_cursor { cursor_style } else { selection_style };
+
+            let new_spans: Vec<Span<'static>> = line
+                .spans
+                .into_iter()
+                .map(|span| {
+                    Span::styled(
+                        span.content.as_ref().to_string(),
+                        highlight.patch(span.style),
+                    )
+                })
+                .collect();
+
+            Line::from(new_spans)
         })
         .collect()
 }
@@ -533,8 +608,10 @@ mod tests {
 
     #[test]
     fn empty_diff_produces_placeholder() {
-        let doc = build_diff_document("", 80);
+        let (doc, meta) = build_diff_document("", 80);
         assert_eq!(doc.len(), 1);
+        assert_eq!(meta.len(), 1);
+        assert!(meta[0].is_none());
     }
 
     #[test]
@@ -649,7 +726,7 @@ diff --git a/foo.rs b/foo.rs
 +new
  line3
 ";
-        let doc = build_diff_document(diff, 80);
+        let (doc, _meta) = build_diff_document(diff, 80);
         // file header + metadata + hunk header + 3 rows = at least 5 lines
         assert!(doc.len() >= 5);
     }
@@ -709,7 +786,7 @@ new file mode 100644
 +line one
 +line two
 ";
-        let doc = build_diff_document(diff, 80);
+        let (doc, _meta) = build_diff_document(diff, 80);
         // Should have at least: file header, meta, hunk header, 2 rows.
         assert!(doc.len() >= 5, "expected at least 5 lines, got {}", doc.len());
     }

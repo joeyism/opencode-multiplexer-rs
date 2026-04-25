@@ -23,6 +23,7 @@ impl PtyManager {
         session_id: Option<String>,
         origin: SessionOrigin,
         process_pid: Option<u32>,
+        serve_pid: Option<u32>,
         model: Option<String>,
         preview: Option<String>,
         time_updated: Option<i64>,
@@ -36,6 +37,7 @@ impl PtyManager {
             session_id,
             origin,
             process_pid,
+            serve_pid,
             model,
             preview,
             time_updated,
@@ -54,10 +56,9 @@ impl PtyManager {
         cols: u16,
     ) -> anyhow::Result<u64> {
         use crate::ops::opencode::{
-            find_available_port, get_latest_session_id_from_serve, spawn_serve_daemon,
-            wait_for_serve_ready,
+            find_available_port, spawn_serve_daemon, wait_for_serve_ready,
         };
-        use crate::registry::register_serve_process;
+        use crate::registry::{register_serve_process, update_serve_registry_tui_pid};
 
         // Spawn serve daemon as persistent backend
         let port = find_available_port(4200);
@@ -73,6 +74,9 @@ impl PtyManager {
         let pty = PtySession::spawn_managed(&cwd, rows, cols)?;
         let session_id = None;
         let process_pid = pty.process_id();
+        if let Some(pid) = process_pid {
+            let _ = update_serve_registry_tui_pid(port, pid);
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -84,6 +88,7 @@ impl PtyManager {
             session_id,
             SessionOrigin::Managed,
             process_pid,
+            Some(serve_pid),
             None,
             None,
             Some(now_ms),
@@ -138,6 +143,7 @@ impl PtyManager {
             Some(session_id),
             SessionOrigin::Managed,
             process_pid,
+            None,
             None,
             None,
             time_updated,
@@ -342,7 +348,9 @@ impl PtyManager {
                     summary.cwd = discovered.cwd.clone();
                     summary.title = discovered.title.clone();
                     summary.status = discovered.status;
-                    summary.process_pid = discovered.process_pid;
+                    if summary.serve_pid != discovered.process_pid {
+                        summary.process_pid = discovered.process_pid;
+                    }
                     summary.model = discovered.model.clone();
                     summary.preview = discovered.preview.clone();
                     summary.time_updated = discovered.time_updated;
@@ -360,6 +368,9 @@ impl PtyManager {
                     summary.cwd = discovered.cwd.clone();
                     summary.title = discovered.title.clone();
                     summary.status = discovered.status;
+                    if summary.serve_pid != discovered.process_pid {
+                        summary.process_pid = discovered.process_pid;
+                    }
                     summary.model = discovered.model.clone();
                     summary.preview = discovered.preview.clone();
                     summary.time_updated = discovered.time_updated;
@@ -376,6 +387,7 @@ impl PtyManager {
                 Some(discovered.session_id),
                 SessionOrigin::Discovered,
                 discovered.process_pid,
+                None,
                 discovered.model,
                 discovered.preview,
                 discovered.time_updated,

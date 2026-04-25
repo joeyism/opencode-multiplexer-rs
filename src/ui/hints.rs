@@ -5,7 +5,12 @@ use ratatui::{
 
 use crate::{app::focus::AppFocus, config::Keybindings};
 
-pub fn footer_line(focus: AppFocus, message: Option<&str>, keys: &Keybindings) -> Line<'static> {
+pub fn footer_line(
+    focus: AppFocus,
+    message: Option<&str>,
+    keys: &Keybindings,
+    diff_visual_mode: bool,
+) -> Line<'static> {
     if let Some(message) = message {
         return Line::from(vec![Span::styled(
             message.to_string(),
@@ -15,7 +20,7 @@ pub fn footer_line(focus: AppFocus, message: Option<&str>, keys: &Keybindings) -
 
     match focus {
         AppFocus::Conversation => conversation_hints(keys),
-        AppFocus::Diff => diff_hints(keys),
+        AppFocus::Diff => diff_hints(keys, diff_visual_mode),
         _ => main_hints(focus, keys),
     }
 }
@@ -45,26 +50,43 @@ fn conversation_hints(keys: &Keybindings) -> Line<'static> {
     ])
 }
 
-fn diff_hints(keys: &Keybindings) -> Line<'static> {
-    Line::from(vec![
-        Span::styled("j/k", Style::default().fg(Color::Cyan)),
-        Span::raw(" scroll  "),
-        Span::styled("G", Style::default().fg(Color::Cyan)),
-        Span::raw(" end  "),
-        Span::styled("g", Style::default().fg(Color::Cyan)),
-        Span::raw(" top  "),
-        Span::styled("/", Style::default().fg(Color::Cyan)),
-        Span::raw(" search  "),
-        Span::styled("n/N", Style::default().fg(Color::Cyan)),
-        Span::raw(" next/prev  "),
-        Span::styled(keys.diff.to_string(), Style::default().fg(Color::Cyan)),
-        Span::raw(" back  "),
-        Span::styled("\u{21e7}+click", Style::default().fg(Color::Cyan)),
-        Span::raw(" select  "),
-        Span::styled(keys.help.to_string(), Style::default().fg(Color::Cyan)),
-        Span::raw(" help  "),
-        Span::styled("[diff]".to_string(), Style::default().fg(Color::Yellow)),
-    ])
+fn diff_hints(keys: &Keybindings, visual_mode: bool) -> Line<'static> {
+    if visual_mode {
+        Line::from(vec![
+            Span::styled("j/k", Style::default().fg(Color::Cyan)),
+            Span::raw(" move  "),
+            Span::styled("v", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel  "),
+            Span::styled("Enter", Style::default().fg(Color::Cyan)),
+            Span::raw(" confirm  "),
+            Span::styled("Esc", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel  "),
+            Span::styled(
+                "[diff:visual]".to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("j/k", Style::default().fg(Color::Cyan)),
+            Span::raw(" move  "),
+            Span::styled("G", Style::default().fg(Color::Cyan)),
+            Span::raw(" end  "),
+            Span::styled("g", Style::default().fg(Color::Cyan)),
+            Span::raw(" top  "),
+            Span::styled("/", Style::default().fg(Color::Cyan)),
+            Span::raw(" search  "),
+            Span::styled("n/N", Style::default().fg(Color::Cyan)),
+            Span::raw(" next/prev  "),
+            Span::styled("v", Style::default().fg(Color::Cyan)),
+            Span::raw(" select  "),
+            Span::styled(keys.diff.to_string(), Style::default().fg(Color::Cyan)),
+            Span::raw(" back  "),
+            Span::styled(keys.help.to_string(), Style::default().fg(Color::Cyan)),
+            Span::raw(" help  "),
+            Span::styled("[diff]".to_string(), Style::default().fg(Color::Yellow)),
+        ])
+    }
 }
 
 fn main_hints(focus: AppFocus, keys: &Keybindings) -> Line<'static> {

@@ -59,6 +59,7 @@ fn first_session_becomes_active_and_selected() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -68,6 +69,7 @@ fn first_session_becomes_active_and_selected() {
         SessionStatus::Idle,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -95,6 +97,7 @@ fn selecting_next_and_activating_switches_active_session() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -104,6 +107,7 @@ fn selecting_next_and_activating_switches_active_session() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -133,6 +137,7 @@ fn confirming_kill_removes_selected_and_promotes_neighbor() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -142,6 +147,7 @@ fn confirming_kill_removes_selected_and_promotes_neighbor() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -226,6 +232,7 @@ fn pty_manager_kill_selected_updates_active_session() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -235,6 +242,7 @@ fn pty_manager_kill_selected_updates_active_session() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -348,6 +356,7 @@ fn sidebar_entries_sort_top_level_sessions_by_recent_update_first() {
         None,
         None,
         None,
+        None,
         Some(100),
         false,
         vec![],
@@ -358,6 +367,7 @@ fn sidebar_entries_sort_top_level_sessions_by_recent_update_first() {
         SessionStatus::Idle,
         Some("sess_new".into()),
         SessionOrigin::Discovered,
+        None,
         None,
         None,
         None,
@@ -383,6 +393,7 @@ fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -423,4 +434,70 @@ fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
     // Second call returns empty — nothing left to reap
     let exited_again = manager.reap_exited_ptys();
     assert!(exited_again.is_empty(), "second reap should find nothing");
+}
+
+#[test]
+fn find_by_process_pid_matches_serve_pid() {
+    let mut sessions = SessionList::default();
+
+    let id = sessions.push(
+        PathBuf::from("/tmp/project"),
+        "project".into(),
+        SessionStatus::Idle,
+        Some("sess_1".into()),
+        SessionOrigin::Managed,
+        Some(200),
+        Some(100),
+        None,
+        None,
+        None,
+        false,
+        vec![],
+    );
+
+    assert_eq!(sessions.find_by_process_pid(200), Some(id));
+    assert_eq!(sessions.find_by_process_pid(100), Some(id));
+    assert_eq!(sessions.find_by_process_pid(999), None);
+}
+
+#[test]
+fn apply_poll_snapshot_updates_via_serve_pid() {
+    let mut manager = PtyManager::default();
+
+    let id = manager.register_placeholder(
+        PathBuf::from("/tmp/project"),
+        "project".into(),
+        SessionStatus::Idle,
+        None,
+        SessionOrigin::Managed,
+        Some(200),
+        Some(100),
+        None,
+        None,
+        None,
+        false,
+        vec![],
+    );
+
+    manager.apply_poll_snapshot(PollSnapshot {
+        sessions: vec![DiscoveredSessionInfo {
+            session_id: "sess_correct".into(),
+            cwd: PathBuf::from("/tmp/project"),
+            title: "Correct Title".into(),
+            status: SessionStatus::Working,
+            process_pid: Some(100), // serve PID
+            model: None,
+            preview: None,
+            time_updated: None,
+            has_children: false,
+            children: vec![],
+        }],
+    });
+
+    let summary = manager.selected_summary().unwrap();
+    assert_eq!(summary.session_id.as_deref(), Some("sess_correct"));
+    assert_eq!(summary.title, "Correct Title");
+    assert_eq!(summary.status, SessionStatus::Working);
+    assert_eq!(summary.process_pid, Some(200), "process_pid should remain the TUI PID");
+    assert_eq!(summary.serve_pid, Some(100));
 }

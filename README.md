@@ -93,8 +93,8 @@ Press `d` from the sidebar to open a read-only view of the session's git diff. T
 
 | Key      | Action                    |
 |----------|---------------------------|
-| `j` / `Down` | Scroll down           |
-| `k` / `Up`   | Scroll up             |
+| `j` / `Down` | Move cursor down      |
+| `k` / `Up`   | Move cursor up        |
 | `G`      | Jump to end               |
 | `g`      | Jump to top               |
 | `Ctrl-u` | Page up                   |
@@ -102,7 +102,12 @@ Press `d` from the sidebar to open a read-only view of the session's git diff. T
 | `/`      | Search diff               |
 | `n`      | Next search match         |
 | `N`      | Previous search match     |
-| `q` / `d` / `Esc` | Close view       |
+| `v`      | Toggle visual selection   |
+| `Enter`  | Confirm selection & paste |
+| `Esc`    | Cancel selection / close  |
+| `q` / `d`| Close view                |
+
+**Visual selection:** Press `v` to enter visual mode, then use `j`/`k` to highlight lines. Press `Enter` to confirm — this closes the diff, returns to the terminal, and pastes the filepath + line range (e.g. `foo.rs:42-58`) into the chatbox so opencode knows where to look. Press `Esc` or `v` again to cancel without pasting.
 
 Mouse scroll is supported in the diff view. Search is incremental — type to filter and `Enter` to confirm.
 
