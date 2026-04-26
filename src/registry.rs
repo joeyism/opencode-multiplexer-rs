@@ -115,8 +115,23 @@ pub fn update_serve_registry_tui_pid(port: u16, tui_pid: u32) -> anyhow::Result<
     Ok(())
 }
 
+#[cfg(unix)]
 fn is_pid_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+#[cfg(windows)]
+fn is_pid_alive(pid: u32) -> bool {
+    if let Ok(output) = std::process::Command::new("tasklist")
+        .arg("/FI")
+        .arg(format!("PID eq {}", pid))
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.contains(&pid.to_string())
+    } else {
+        true
+    }
 }
 
 fn default_serve_registry_path() -> anyhow::Result<PathBuf> {

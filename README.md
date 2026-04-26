@@ -11,7 +11,7 @@ A terminal multiplexer for managing [OpenCode](https://opencode.ai) sessions.
 **Cargo:**
 
 ```
-cargo install ocmux-rs
+cargo install opencode-multiplexer
 ```
 
 **Homebrew:**
