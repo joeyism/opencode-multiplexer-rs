@@ -769,8 +769,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                                 }
                                 footer_message = None;
                             } else {
-                                footer_message =
-                                    Some("No valid lines in selection".to_string());
+                                footer_message = Some("No valid lines in selection".to_string());
                             }
                         }
                         KeyCode::Enter => {}
@@ -813,7 +812,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         footer_message = Some(format!("paste failed: {error}"));
                     }
                 }
-                Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Down(_)) && mouse.column < config.sidebar_width => {
+                Event::Mouse(mouse)
+                    if matches!(mouse.kind, MouseEventKind::Down(_))
+                        && mouse.column < config.sidebar_width =>
+                {
                     state.focus = AppFocus::Sidebar;
                     let clicked_row = mouse.row.saturating_sub(1) as usize;
                     if clicked_row < rows.len() {
