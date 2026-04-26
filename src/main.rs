@@ -11,7 +11,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ocmux_rs::{
+use opencode_multiplexer::{
     app::{
         conversation::ConversationViewState, diff::DiffViewState, focus::AppFocus, reducer::reduce,
         session_picker::SessionPickerState, state::AppState, Action,
@@ -66,7 +66,7 @@ fn run(
     mut terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
 ) -> Result<(), Box<dyn Error>> {
     let config = load_config().unwrap_or_default();
-    let _ = ocmux_rs::registry::cleanup_stale_serve_entries();
+    let _ = opencode_multiplexer::registry::cleanup_stale_serve_entries();
     let mut state = AppState::default();
     let mut manager = PtyManager::default();
     let mut footer_message: Option<String> = None;
@@ -987,7 +987,7 @@ fn commit_session_files(
     session_id: &str,
     cwd: &std::path::Path,
 ) -> Result<Option<String>, Box<dyn Error>> {
-    let reader = ocmux_rs::data::db::reader::DbReader::open_default()?;
+    let reader = opencode_multiplexer::data::db::reader::DbReader::open_default()?;
     let files = reader.get_session_modified_files(session_id)?;
     if files.is_empty() {
         return Ok(Some("no files modified by this session".into()));
@@ -997,7 +997,7 @@ fn commit_session_files(
     print!("\x1b[2J\x1b[H");
 
     // Get git status for session files
-    let (created, modified, deleted) = ocmux_rs::ops::git::get_file_statuses(cwd, &files)?;
+    let (created, modified, deleted) = opencode_multiplexer::ops::git::get_file_statuses(cwd, &files)?;
 
     println!("Files modified by this session:\n");
 
@@ -1041,7 +1041,7 @@ fn commit_session_files(
         None
     } else {
         // Run commit + push, show output
-        let output = ocmux_rs::ops::git::commit_and_push_files(
+        let output = opencode_multiplexer::ops::git::commit_and_push_files(
             cwd, &created, &modified, &deleted, &message,
         )?;
         println!("\n{}", output);
@@ -1054,12 +1054,12 @@ fn commit_session_files(
     Ok(result)
 }
 
-fn resolve_session_cwd(row: &ocmux_rs::ui::sidebar::SidebarVisibleRow) -> Option<PathBuf> {
+fn resolve_session_cwd(row: &opencode_multiplexer::ui::sidebar::SidebarVisibleRow) -> Option<PathBuf> {
     if !row.cwd.as_os_str().is_empty() && row.cwd.is_dir() {
         return Some(row.cwd.clone());
     }
     if let Some(sid) = row.session_id.as_deref() {
-        if let Ok(reader) = ocmux_rs::data::db::reader::DbReader::open_default() {
+        if let Ok(reader) = opencode_multiplexer::data::db::reader::DbReader::open_default() {
             if let Ok(Some(session)) = reader.get_session_by_id(sid) {
                 if !session.directory.as_os_str().is_empty() && session.directory.is_dir() {
                     return Some(session.directory);
@@ -1080,7 +1080,7 @@ fn resolve_session_cwd(row: &ocmux_rs::ui::sidebar::SidebarVisibleRow) -> Option
 /// Resolve the diff for a session. Tries the opencode serve API first (targeted
 /// to the matching port), then falls back to a full worktree git diff.
 fn resolve_session_diff(
-    row: &ocmux_rs::ui::sidebar::SidebarVisibleRow,
+    row: &opencode_multiplexer::ui::sidebar::SidebarVisibleRow,
     sid: &str,
 ) -> Result<String, String> {
     let cwd = resolve_session_cwd(row).ok_or_else(|| "session directory not found".to_string())?;
