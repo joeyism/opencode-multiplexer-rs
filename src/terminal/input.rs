@@ -65,10 +65,7 @@ fn modifier_param(mods: KeyModifiers) -> Option<u8> {
     let shift = mods.contains(KeyModifiers::SHIFT);
     let alt = mods.contains(KeyModifiers::ALT);
     let ctrl = mods.contains(KeyModifiers::CONTROL);
-    let param = 1
-        + if shift { 1 } else { 0 }
-        + if alt { 2 } else { 0 }
-        + if ctrl { 4 } else { 0 };
+    let param = 1 + if shift { 1 } else { 0 } + if alt { 2 } else { 0 } + if ctrl { 4 } else { 0 };
     if param > 1 { Some(param) } else { None }
 }
 

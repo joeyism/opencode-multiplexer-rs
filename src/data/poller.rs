@@ -78,16 +78,18 @@ impl PollerHandle {
 
 pub fn start_poller(poll_tx: Sender<PollSnapshot>) -> PollerHandle {
     let (stop_tx, stop_rx) = mpsc::channel();
-    let join_handle = thread::spawn(move || loop {
-        if stop_rx.try_recv().is_ok() {
-            break;
-        }
+    let join_handle = thread::spawn(move || {
+        loop {
+            if stop_rx.try_recv().is_ok() {
+                break;
+            }
 
-        if let Ok(snapshot) = poll_once() {
-            let _ = poll_tx.send(snapshot);
-        }
+            if let Ok(snapshot) = poll_once() {
+                let _ = poll_tx.send(snapshot);
+            }
 
-        thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(2));
+        }
     });
 
     PollerHandle {
@@ -105,12 +107,11 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
     let mut sessions = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut offsets: HashMap<String, usize> = HashMap::new();
-    let managed_tui_pids: std::collections::HashSet<u32> =
-        load_serve_registry()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|e| e.tui_pid)
-            .collect();
+    let managed_tui_pids: std::collections::HashSet<u32> = load_serve_registry()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|e| e.tui_pid)
+        .collect();
 
     for process in processes {
         if process.session_id.is_none() && managed_tui_pids.contains(&process.pid) {
@@ -189,7 +190,10 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
                 continue;
             }
             let cwd = if session.directory.as_os_str().is_empty() {
-                if let Some(proj) = projects.iter().find(|project| project.id == session.project_id) {
+                if let Some(proj) = projects
+                    .iter()
+                    .find(|project| project.id == session.project_id)
+                {
                     proj.worktree.clone()
                 } else {
                     continue; // Skip if no valid directory or project worktree exists

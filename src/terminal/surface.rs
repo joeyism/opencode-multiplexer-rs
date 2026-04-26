@@ -1,6 +1,6 @@
 use alacritty_terminal::{
     event::VoidListener,
-    term::{cell::Flags, test::TermSize, Config, Term},
+    term::{Config, Term, cell::Flags, test::TermSize},
     vte::ansi::Processor,
 };
 use ratatui::style::Color;

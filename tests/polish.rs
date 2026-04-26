@@ -4,11 +4,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use ocmux_rs::{
+use opencode_multiplexer::{
     app::sessions::SessionStatus,
-    config::{load_config_from_path, AppConfig, Keybindings},
-    data::poller::{should_include_serve_session, ServeSessionInfo},
-    ops::worktree::{build_worktree_plan, worktree_target_dir, WorktreePlan},
+    config::{AppConfig, Keybindings, load_config_from_path},
+    data::poller::{ServeSessionInfo, should_include_serve_session},
+    ops::worktree::{WorktreePlan, build_worktree_plan, worktree_target_dir},
     registry::{load_managed_sessions_from_path, save_managed_sessions_to_path},
     ui::sidebar::{
         display_session_label, format_sidebar_text, relative_time_from_updated, relative_time_label,

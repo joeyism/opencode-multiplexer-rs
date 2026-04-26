@@ -1,4 +1,4 @@
-use crate::app::{focus::AppFocus, state::AppState, Action};
+use crate::app::{Action, focus::AppFocus, state::AppState};
 
 pub fn reduce(state: &mut AppState, action: Action) {
     match action {

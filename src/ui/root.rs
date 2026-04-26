@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::{
@@ -14,15 +14,16 @@ use crate::{
     config::Keybindings,
     terminal::{manager::PtyManager, renderer::TerminalWidget},
     ui::{
+        diff::apply_cursor_and_selection,
         diff::highlight_search_matches,
         hints::footer_line,
         layout::{centered_rect, split_root},
         session_picker::render_session_picker,
-        diff::apply_cursor_and_selection,
-        sidebar::{render_sidebar, repo_root_name, SidebarVisibleRow},
+        sidebar::{SidebarVisibleRow, render_sidebar, repo_root_name},
     },
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     frame: &mut Frame,
     focus: AppFocus,
@@ -57,7 +58,7 @@ pub fn render(
         );
     }
     frame.render_widget(
-        Line::from(footer_line(focus, footer_message, keys, diff.is_visual())),
+        footer_line(focus, footer_message, keys, diff.is_visual()),
         layout.footer,
     );
 
@@ -93,9 +94,7 @@ pub fn render(
             // Truncate: drop dir, truncate title
             let available = max_meta.saturating_sub(repo.len() + 5); // " │  │ " overhead without dir
             let truncated_title: String = title.chars().take(available.saturating_sub(1)).collect();
-            format!(
-                "{mode_tag}\u{2500}\u{2500} {repo} \u{2502} {truncated_title}\u{2026} "
-            )
+            format!("{mode_tag}\u{2500}\u{2500} {repo} \u{2502} {truncated_title}\u{2026} ")
         } else {
             mode_tag.to_string()
         }
@@ -126,8 +125,7 @@ pub fn render(
                 inner,
             );
         } else {
-            let has_search =
-                conversation.is_searching() || !conversation.search_query().is_empty();
+            let has_search = conversation.is_searching() || !conversation.search_query().is_empty();
 
             let (content_area, search_bar_area) = if has_search {
                 let bar_height = 1u16;
@@ -195,7 +193,10 @@ pub fn render(
                         ),
                         Style::default().bg(Color::DarkGray),
                     ),
-                    Span::styled(status, Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(
+                        status,
+                        Style::default().fg(Color::Yellow).bg(Color::DarkGray),
+                    ),
                 ]);
 
                 frame.render_widget(Paragraph::new(bar_line), bar);
@@ -291,7 +292,10 @@ pub fn render(
                     ),
                     Style::default().bg(Color::DarkGray),
                 ),
-                Span::styled(status, Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                Span::styled(
+                    status,
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray),
+                ),
             ]);
 
             frame.render_widget(Paragraph::new(bar_line), bar);

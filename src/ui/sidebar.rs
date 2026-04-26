@@ -212,6 +212,7 @@ pub fn relative_time_label(age_secs: u64) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn format_sidebar_text(
     cwd: &Path,
     title: &str,
@@ -239,6 +240,7 @@ pub fn format_sidebar_text(
     format!("{}{}", left, right)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_sidebar_parts(
     cwd: &Path,
     title: &str,
@@ -270,11 +272,7 @@ fn format_sidebar_parts(
     let marker = if is_child {
         ""
     } else if has_children {
-        if expanded {
-            "▽ "
-        } else {
-            "▸ "
-        }
+        if expanded { "▽ " } else { "▸ " }
     } else {
         "  "
     };
@@ -314,21 +312,21 @@ pub fn repo_root_name(cwd: &Path) -> String {
                 .to_string();
         }
         if dot_git.is_file() {
-            if let Ok(contents) = std::fs::read_to_string(&dot_git) {
-                if let Some(target) = contents.strip_prefix("gitdir: ") {
-                    let gitdir = Path::new(target.trim());
-                    if let Some(repo_root) = gitdir
-                        .parent()
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                    {
-                        return repo_root
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or("?")
-                            .to_string();
-                    }
+            if let Ok(contents) = std::fs::read_to_string(&dot_git)
+                && let Some(target) = contents.strip_prefix("gitdir: ")
+            {
+                let gitdir = Path::new(target.trim());
+                if let Some(repo_root) = gitdir
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
+                    return repo_root
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("?")
+                        .to_string();
                 }
             }
             return ancestor
@@ -406,10 +404,7 @@ fn render_row(
         matches!(row.kind, SidebarRowKind::Child { .. }),
     );
     Line::from(vec![
-        Span::styled(
-            format!("{symbol} "),
-            Style::default().fg(color),
-        ),
+        Span::styled(format!("{symbol} "), Style::default().fg(color)),
         Span::styled(left, row_style),
         Span::styled(format!(" {}", right), row_style),
     ])

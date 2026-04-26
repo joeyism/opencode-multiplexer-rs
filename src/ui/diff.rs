@@ -1,3 +1,4 @@
+#![allow(clippy::if_same_then_else)]
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -216,7 +217,11 @@ pub fn apply_cursor_and_selection(
                 return line;
             }
 
-            let highlight = if is_cursor { cursor_style } else { selection_style };
+            let highlight = if is_cursor {
+                cursor_style
+            } else {
+                selection_style
+            };
 
             let new_spans: Vec<Span<'static>> = line
                 .spans
@@ -328,13 +333,13 @@ fn parse_unified_diff(input: &str) -> ParsedDiff {
                 meta: Vec::new(),
                 hunks: Vec::new(),
             });
-        } else if raw_line.starts_with("--- ") {
+        } else if let Some(stripped) = raw_line.strip_prefix("--- ") {
             if let Some(ref mut file) = current_file {
-                file.old_path = strip_git_prefix(&raw_line[4..]).to_string();
+                file.old_path = strip_git_prefix(stripped).to_string();
             }
-        } else if raw_line.starts_with("+++ ") {
+        } else if let Some(stripped) = raw_line.strip_prefix("+++ ") {
             if let Some(ref mut file) = current_file {
-                file.new_path = strip_git_prefix(&raw_line[4..]).to_string();
+                file.new_path = strip_git_prefix(stripped).to_string();
             }
         } else if raw_line.starts_with("@@ ") {
             flush_change_block(&mut removed_buf, &mut added_buf, &mut current_hunk);
@@ -788,7 +793,11 @@ new file mode 100644
 ";
         let (doc, _meta) = build_diff_document(diff, 80);
         // Should have at least: file header, meta, hunk header, 2 rows.
-        assert!(doc.len() >= 5, "expected at least 5 lines, got {}", doc.len());
+        assert!(
+            doc.len() >= 5,
+            "expected at least 5 lines, got {}",
+            doc.len()
+        );
     }
 
     // -----------------------------------------------------------------------

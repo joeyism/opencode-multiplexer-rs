@@ -18,9 +18,8 @@ impl Widget for TerminalWidget<'_> {
         let max_rows = area.height as usize;
         let max_cols = area.width as usize;
 
-        for row in 0..max_rows.min(snapshot.len()) {
-            for col in 0..max_cols.min(snapshot[row].len()) {
-                let cell = &snapshot[row][col];
+        for (row, row_data) in snapshot.iter().enumerate().take(max_rows) {
+            for (col, cell) in row_data.iter().enumerate().take(max_cols) {
                 let x = area.x + col as u16;
                 let y = area.y + row as u16;
                 buf[(x, y)].set_symbol(&cell.symbol).set_style(cell.style());

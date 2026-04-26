@@ -1,15 +1,12 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
-    Frame,
 };
 
-use crate::{
-    app::session_picker::SessionPickerState,
-    ui::sidebar::relative_time_from_updated,
-};
+use crate::{app::session_picker::SessionPickerState, ui::sidebar::relative_time_from_updated};
 
 pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState, area: Rect) {
     let block = Block::default()
@@ -58,19 +55,27 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
     let header = Row::new(vec![
         Cell::from(Span::styled(
             "Repo",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
         Cell::from(Span::styled(
             "Title",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
         Cell::from(Span::styled(
             "Directory",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
         Cell::from(Span::styled(
             "Time",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
     ]);
 
@@ -87,8 +92,7 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
 
             let repo_cell = Cell::from(highlight_text(&entry.repo, repo_idx, normal, highlight));
             let title_cell = Cell::from(highlight_text(&entry.title, title_idx, normal, highlight));
-            let dir_cell =
-                Cell::from(highlight_text(&entry.directory, dir_idx, normal, highlight));
+            let dir_cell = Cell::from(highlight_text(&entry.directory, dir_idx, normal, highlight));
             let time = relative_time_from_updated(Some(entry.time_updated));
             let time_cell = Cell::from(Span::styled(time, normal));
 

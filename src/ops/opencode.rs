@@ -22,8 +22,8 @@ pub fn display_title_for_cwd(cwd: &Path) -> String {
         .unwrap_or_else(|| cwd.display().to_string())
 }
 
-use std::process::{Command, Stdio};
 use std::net::TcpListener;
+use std::process::{Command, Stdio};
 
 pub fn find_available_port(start: u16) -> u16 {
     for port in start..start + 100 {
@@ -53,10 +53,9 @@ pub fn wait_for_serve_ready(port: u16, timeout_secs: u64) -> bool {
             .timeout(std::time::Duration::from_millis(500))
             .build()
             .and_then(|c| c.get(format!("http://localhost:{}/session", port)).send())
+            && resp.status().is_success()
         {
-            if resp.status().is_success() {
-                return true;
-            }
+            return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
@@ -74,12 +73,11 @@ pub fn get_latest_session_id_from_serve(port: u16) -> anyhow::Result<Option<Stri
     }
     let json: serde_json::Value = resp.json()?;
     let sessions = json.as_array();
-    if let Some(sessions) = sessions {
-        if let Some(first) = sessions.first() {
-            if let Some(id) = first.get("id").and_then(|v| v.as_str()) {
-                return Ok(Some(id.to_string()));
-            }
-        }
+    if let Some(sessions) = sessions
+        && let Some(first) = sessions.first()
+        && let Some(id) = first.get("id").and_then(|v| v.as_str())
+    {
+        return Ok(Some(id.to_string()));
     }
     Ok(None)
 }

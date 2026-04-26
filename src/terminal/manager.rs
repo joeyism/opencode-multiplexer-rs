@@ -15,6 +15,7 @@ pub struct PtyManager {
 }
 
 impl PtyManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn register_placeholder(
         &mut self,
         cwd: PathBuf,
@@ -55,9 +56,7 @@ impl PtyManager {
         rows: u16,
         cols: u16,
     ) -> anyhow::Result<u64> {
-        use crate::ops::opencode::{
-            find_available_port, spawn_serve_daemon, wait_for_serve_ready,
-        };
+        use crate::ops::opencode::{find_available_port, spawn_serve_daemon, wait_for_serve_ready};
         use crate::registry::{register_serve_process, update_serve_registry_tui_pid};
 
         // Spawn serve daemon as persistent backend
@@ -124,6 +123,7 @@ impl PtyManager {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn attach_arbitrary_session(
         &mut self,
         session_id: String,
@@ -276,11 +276,7 @@ impl PtyManager {
             .iter_mut()
             .filter_map(|(&id, slot)| {
                 if let Some(pty) = slot.as_mut() {
-                    if !pty.is_alive() {
-                        Some(id)
-                    } else {
-                        None
-                    }
+                    if !pty.is_alive() { Some(id) } else { None }
                 } else {
                     None
                 }

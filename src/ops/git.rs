@@ -3,7 +3,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::data::discovery::ps::scan_serve_processes;
-use crate::registry::{load_serve_registry, ServeEntry};
+use crate::registry::{ServeEntry, load_serve_registry};
 
 pub fn diff_head_files(cwd: &Path, files: &[String]) -> anyhow::Result<String> {
     let relative = repo_relative_session_files(cwd, files)?;
@@ -56,7 +56,15 @@ pub fn diff_worktree(cwd: &Path) -> anyhow::Result<String> {
 
         // `git diff --no-index` exits 1 when files differ (not an error).
         let no_index = Command::new("git")
-            .args(["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", file])
+            .args([
+                "diff",
+                "--no-ext-diff",
+                "--no-color",
+                "--no-index",
+                "--",
+                "/dev/null",
+                file,
+            ])
             .current_dir(cwd)
             .output()?;
 
@@ -92,13 +100,13 @@ pub fn fetch_session_diff_from_serve(session_id: &str, session_cwd: &Path) -> Op
 
     let mut combined = String::new();
     for entry in diffs {
-        if let Some(diff_text) = entry.get("diff").and_then(|d| d.as_str()) {
-            if !diff_text.is_empty() {
-                if !combined.is_empty() {
-                    combined.push('\n');
-                }
-                combined.push_str(diff_text);
+        if let Some(diff_text) = entry.get("diff").and_then(|d| d.as_str())
+            && !diff_text.is_empty()
+        {
+            if !combined.is_empty() {
+                combined.push('\n');
             }
+            combined.push_str(diff_text);
         }
     }
 
@@ -118,16 +126,15 @@ pub fn fetch_session_diff_from_serve(session_id: &str, session_cwd: &Path) -> Op
 /// canonical path match; falls back to the entry sharing the longest common
 /// ancestor with `session_cwd`.
 pub fn find_serve_port_for_cwd(session_cwd: &Path) -> Option<u16> {
-    let canon_session = std::fs::canonicalize(session_cwd)
-        .unwrap_or_else(|_| session_cwd.to_path_buf());
+    let canon_session =
+        std::fs::canonicalize(session_cwd).unwrap_or_else(|_| session_cwd.to_path_buf());
 
     let mut candidates: Vec<(u16, PathBuf)> = Vec::new();
 
     if let Ok(entries) = load_serve_registry() {
         for entry in &entries {
             let entry_path = PathBuf::from(&entry.cwd);
-            let canon_entry = std::fs::canonicalize(&entry_path)
-                .unwrap_or(entry_path);
+            let canon_entry = std::fs::canonicalize(&entry_path).unwrap_or(entry_path);
             candidates.push((entry.port, canon_entry));
         }
     }
@@ -153,10 +160,8 @@ pub fn find_serve_port_for_cwd(session_cwd: &Path) -> Option<u16> {
     let mut best: Option<(u16, usize)> = None;
     for (port, path) in &candidates {
         let depth = common_ancestor_depth(&canon_session, path);
-        if depth > 0 {
-            if best.map_or(true, |(_, d)| depth > d) {
-                best = Some((*port, depth));
-            }
+        if depth > 0 && best.is_none_or(|(_, d)| depth > d) {
+            best = Some((*port, depth));
         }
     }
 
@@ -177,8 +182,8 @@ pub fn find_serve_port_for_cwd_with_entries(
     session_cwd: &Path,
     entries: &[ServeEntry],
 ) -> Option<u16> {
-    let canon_session = std::fs::canonicalize(session_cwd)
-        .unwrap_or_else(|_| session_cwd.to_path_buf());
+    let canon_session =
+        std::fs::canonicalize(session_cwd).unwrap_or_else(|_| session_cwd.to_path_buf());
 
     let candidates: Vec<(u16, PathBuf)> = entries
         .iter()
@@ -200,10 +205,8 @@ pub fn find_serve_port_for_cwd_with_entries(
     let mut best: Option<(u16, usize)> = None;
     for (port, path) in &candidates {
         let depth = common_ancestor_depth(&canon_session, path);
-        if depth > 0 {
-            if best.map_or(true, |(_, d)| depth > d) {
-                best = Some((*port, depth));
-            }
+        if depth > 0 && best.is_none_or(|(_, d)| depth > d) {
+            best = Some((*port, depth));
         }
     }
 
@@ -342,13 +345,12 @@ pub fn repo_relative_session_files(
         } else {
             // Absolute path but doesn't strictly string-match root.
             // On macOS, /var symlinks to /private/var. Try fs::canonicalize.
-            if let Ok(canon_file) = std::fs::canonicalize(file) {
-                if let Ok(canon_root) = std::fs::canonicalize(&root) {
-                    if let Ok(rel) = canon_file.strip_prefix(&canon_root) {
-                        files.push(rel.display().to_string());
-                        continue;
-                    }
-                }
+            if let Ok(canon_file) = std::fs::canonicalize(file)
+                && let Ok(canon_root) = std::fs::canonicalize(&root)
+                && let Ok(rel) = canon_file.strip_prefix(&canon_root)
+            {
+                files.push(rel.display().to_string());
+                continue;
             }
         }
     }

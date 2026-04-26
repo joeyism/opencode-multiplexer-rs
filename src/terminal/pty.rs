@@ -5,7 +5,7 @@ use std::{
     thread,
 };
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::{
     ops::opencode::{build_managed_session_command, build_replica_command},

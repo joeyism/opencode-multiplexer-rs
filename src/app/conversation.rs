@@ -87,7 +87,7 @@ impl ConversationViewState {
         self.session_id.is_some()
             && self
                 .last_poll
-                .map_or(true, |last| now.duration_since(last).as_millis() >= 1000)
+                .is_none_or(|last| now.duration_since(last).as_millis() >= 1000)
     }
 
     pub fn mark_polled(&mut self, now: Instant) {

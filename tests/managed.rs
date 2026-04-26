@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::PathBuf};
 
-use ocmux_rs::{
+use opencode_multiplexer::{
     app::sessions::{SessionList, SessionOrigin, SessionStatus},
     data::poller::{DiscoveredSessionInfo, PollSnapshot},
     ops::opencode::{build_managed_session_command, build_replica_command, display_title_for_cwd},
@@ -23,7 +23,7 @@ fn flatten_sidebar_entries_hides_and_shows_children_based_on_expansion() {
             preview: None,
             time_updated: None,
             has_children: true,
-            children: vec![ocmux_rs::data::poller::ChildSessionInfo {
+            children: vec![opencode_multiplexer::data::poller::ChildSessionInfo {
                 session_id: "child".into(),
                 cwd: PathBuf::from("/tmp/parent"),
                 title: "child".into(),
@@ -324,7 +324,7 @@ fn sidebar_entries_include_child_sessions() {
             preview: None,
             time_updated: None,
             has_children: true,
-            children: vec![ocmux_rs::data::poller::ChildSessionInfo {
+            children: vec![opencode_multiplexer::data::poller::ChildSessionInfo {
                 session_id: "child".into(),
                 cwd: PathBuf::from("/tmp/parent"),
                 title: "child".into(),
@@ -498,6 +498,10 @@ fn apply_poll_snapshot_updates_via_serve_pid() {
     assert_eq!(summary.session_id.as_deref(), Some("sess_correct"));
     assert_eq!(summary.title, "Correct Title");
     assert_eq!(summary.status, SessionStatus::Working);
-    assert_eq!(summary.process_pid, Some(200), "process_pid should remain the TUI PID");
+    assert_eq!(
+        summary.process_pid,
+        Some(200),
+        "process_pid should remain the TUI PID"
+    );
     assert_eq!(summary.serve_pid, Some(100));
 }

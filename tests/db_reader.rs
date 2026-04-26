@@ -4,8 +4,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use ocmux_rs::{app::sessions::SessionStatus, data::db::reader::DbReader};
-use rusqlite::{params, Connection};
+use opencode_multiplexer::{app::sessions::SessionStatus, data::db::reader::DbReader};
+use rusqlite::{Connection, params};
 
 #[test]
 fn reads_projects_and_most_recent_session() {
@@ -163,7 +163,7 @@ fn reads_all_sessions_including_archived_with_user_message_times() {
         [],
     )
     .unwrap();
-    
+
     conn.execute(
         "INSERT INTO session (id, project_id, parent_id, title, directory, permission, time_created, time_updated, time_archived) VALUES ('sess_2', 'proj_1', NULL, 'old', '/tmp/repo', '{}', 5, 20, 99)",
         [],
@@ -177,7 +177,7 @@ fn reads_all_sessions_including_archived_with_user_message_times() {
     assert_eq!(all[0].id, "sess_1");
     assert_eq!(all[0].worktree, PathBuf::from("/tmp/repo"));
     assert_eq!(all[0].time_updated, 25);
-    
+
     assert_eq!(all[1].id, "sess_2");
     assert_eq!(all[1].archived, true);
     assert_eq!(all[1].time_updated, 5); // Fallback to session.time_created
@@ -220,7 +220,7 @@ fn reads_session_modified_files() {
         [],
     )
     .unwrap();
-    
+
     // Duplicate path should only be returned once
     conn.execute(
         r#"INSERT INTO part (id, session_id, message_id, data, time_created) VALUES ('p4', 'sess_1', 'm1', '{"type":"tool","tool":"edit","state":{"input":{"filePath":"/a.txt"}}}', 4)"#,
@@ -228,7 +228,7 @@ fn reads_session_modified_files() {
     )
     .unwrap();
 
-    let reader = ocmux_rs::data::db::reader::DbReader::open(&db_path).unwrap();
+    let reader = opencode_multiplexer::data::db::reader::DbReader::open(&db_path).unwrap();
     let files = reader.get_session_modified_files("sess_1").unwrap();
 
     assert_eq!(files.len(), 2);

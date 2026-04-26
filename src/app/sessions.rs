@@ -41,6 +41,7 @@ pub struct SessionList {
 }
 
 impl SessionList {
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
         cwd: PathBuf,
@@ -91,8 +92,7 @@ impl SessionList {
         self.sessions
             .iter()
             .find(|session| {
-                session.process_pid == Some(process_pid)
-                    || session.serve_pid == Some(process_pid)
+                session.process_pid == Some(process_pid) || session.serve_pid == Some(process_pid)
             })
             .map(|session| session.id)
     }

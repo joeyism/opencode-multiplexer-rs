@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use ocmux_rs::data::db::models::DbProject;
-use ocmux_rs::data::discovery::{
+use opencode_multiplexer::data::db::models::DbProject;
+use opencode_multiplexer::data::discovery::{
     find_best_project,
-    ps::{parse_process_line, parse_serve_process_line, ParsedProcess, ParsedServeProcess},
+    ps::{ParsedProcess, ParsedServeProcess, parse_process_line, parse_serve_process_line},
 };
 
 #[test]

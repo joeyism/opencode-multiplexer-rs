@@ -5,7 +5,7 @@ use std::{
 };
 
 pub fn pick_directory() -> anyhow::Result<Option<PathBuf>> {
-    let capture_path = std::env::temp_dir().join(format!(
+    let _capture_path = std::env::temp_dir().join(format!(
         "ocmux-rs-fzf-{}.txt",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     ));

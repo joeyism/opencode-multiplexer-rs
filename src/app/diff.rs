@@ -105,10 +105,10 @@ impl DiffViewState {
         if self.cursor > max_idx {
             self.cursor = max_idx;
         }
-        if let Some(ref mut anchor) = self.selection_anchor {
-            if *anchor > max_idx {
-                *anchor = max_idx;
-            }
+        if let Some(ref mut anchor) = self.selection_anchor
+            && *anchor > max_idx
+        {
+            *anchor = max_idx;
         }
         let max_scroll = self.document.len().saturating_sub(viewport_height);
         if self.scroll > max_scroll {
@@ -188,16 +188,6 @@ impl DiffViewState {
         self.cursor = max_idx;
         let max_scroll = self.document.len().saturating_sub(vp);
         self.scroll = max_scroll;
-    }
-
-    /// Ensure the cursor is visible within the viewport.
-    fn ensure_cursor_visible(&mut self, vp: usize) {
-        if self.cursor < self.scroll {
-            self.scroll = self.cursor;
-        } else if self.cursor >= self.scroll + vp {
-            let max_scroll = self.document.len().saturating_sub(vp);
-            self.scroll = self.cursor.saturating_sub(vp - 1).min(max_scroll);
-        }
     }
 
     /// Toggle visual selection mode.
@@ -439,12 +429,7 @@ mod tests {
     fn search_finds_matches_in_document() {
         let mut state = DiffViewState::default();
         state.session_id = Some("test".into());
-        state.document = make_document(&[
-            "hello world",
-            "foo bar",
-            "hello again",
-            "nothing here",
-        ]);
+        state.document = make_document(&["hello world", "foo bar", "hello again", "nothing here"]);
         state.start_search();
         state.search_insert('h', 100);
         state.search_insert('e', 100);

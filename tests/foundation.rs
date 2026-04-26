@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ocmux_rs::{
-    app::{focus::AppFocus, reducer::reduce, state::AppState, Action},
+use opencode_multiplexer::{
+    app::{Action, focus::AppFocus, reducer::reduce, state::AppState},
     terminal::{
         color::{ansi_named_color, convert_color},
         input::key_event_to_bytes,
@@ -10,12 +10,12 @@ use ocmux_rs::{
     ui::{
         layout::split_root,
         sidebar::{
-            flatten_sidebar_entries, render_sidebar, sidebar_row_modifier, sidebar_row_style,
-            SidebarEntry,
+            SidebarEntry, flatten_sidebar_entries, render_sidebar, sidebar_row_modifier,
+            sidebar_row_style,
         },
     },
 };
-use ratatui::{backend::TestBackend, layout::Rect, style::Color, Terminal};
+use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Color};
 use std::collections::HashSet;
 
 #[test]
@@ -29,10 +29,10 @@ fn collapsed_sidebar_render_keeps_time_visible_inside_border() {
         session_id: Some("sess_1".into()),
         cwd: std::path::PathBuf::from("/tmp/delorean"),
         title: "ADO-2228 build flux".into(),
-        status: ocmux_rs::app::sessions::SessionStatus::Working,
+        status: opencode_multiplexer::app::sessions::SessionStatus::Working,
         time_updated: Some(now - 30),
         active: true,
-        origin: ocmux_rs::app::sessions::SessionOrigin::Managed,
+        origin: opencode_multiplexer::app::sessions::SessionOrigin::Managed,
         has_children: false,
         children: vec![],
     }];
@@ -75,10 +75,10 @@ fn expanded_sidebar_render_right_aligns_time_within_content_width() {
         session_id: Some("sess_1".into()),
         cwd: std::path::PathBuf::from("/tmp/delorean"),
         title: "ADO-2228 build flux capacitor".into(),
-        status: ocmux_rs::app::sessions::SessionStatus::Working,
+        status: opencode_multiplexer::app::sessions::SessionStatus::Working,
         time_updated: Some(now - 120),
         active: false,
-        origin: ocmux_rs::app::sessions::SessionOrigin::Managed,
+        origin: opencode_multiplexer::app::sessions::SessionOrigin::Managed,
         has_children: false,
         children: vec![],
     }];
@@ -132,10 +132,10 @@ fn selected_row_does_not_restyle_status_dot() {
         session_id: Some("sess_1".into()),
         cwd: std::path::PathBuf::from("/tmp/delorean"),
         title: "ADO-2228 build flux capacitor".into(),
-        status: ocmux_rs::app::sessions::SessionStatus::Working,
+        status: opencode_multiplexer::app::sessions::SessionStatus::Working,
         time_updated: Some(now - 120),
         active: false,
-        origin: ocmux_rs::app::sessions::SessionOrigin::Managed,
+        origin: opencode_multiplexer::app::sessions::SessionOrigin::Managed,
         has_children: false,
         children: vec![],
     }];

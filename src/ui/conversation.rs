@@ -40,11 +40,7 @@ pub fn build_document(messages: &[DbConversationMessage], width: u16) -> Vec<Lin
             "user" => "you",
             "assistant" => {
                 if let Some(agent) = &msg.agent {
-                    if agent.is_empty() {
-                        "assistant"
-                    } else {
-                        agent
-                    }
+                    if agent.is_empty() { "assistant" } else { agent }
                 } else {
                     "assistant"
                 }
@@ -66,10 +62,10 @@ pub fn build_document(messages: &[DbConversationMessage], width: u16) -> Vec<Lin
         for part in &msg.parts {
             match part.part_type.as_str() {
                 "text" | "reasoning" => {
-                    if let Some(text) = &part.text {
-                        if !text.is_empty() {
-                            text_buffer.push_str(text);
-                        }
+                    if let Some(text) = &part.text
+                        && !text.is_empty()
+                    {
+                        text_buffer.push_str(text);
                     }
                 }
                 "tool" => {
@@ -159,7 +155,7 @@ fn truncate(s: &str, max_len: usize) -> String {
 
 fn render_markdown(text: &str, width: u16) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
-    let mut parser = Parser::new_ext(text, Options::ENABLE_TABLES);
+    let parser = Parser::new_ext(text, Options::ENABLE_TABLES);
     let mut current_spans: Vec<Span<'static>> = Vec::new();
     let mut style_stack: Vec<Style> = vec![Style::default()];
     let mut in_code_block = false;
@@ -167,7 +163,7 @@ fn render_markdown(text: &str, width: u16) -> Vec<Line<'static>> {
     let mut code_block_text = String::new();
     let mut list_counter: usize = 0;
 
-    while let Some(event) = parser.next() {
+    for event in parser {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
                 flush_spans(&mut current_spans, &mut lines);
@@ -311,7 +307,7 @@ fn flush_spans(spans: &mut Vec<Span<'static>>, lines: &mut Vec<Line<'static>>) {
     if spans.is_empty() {
         return;
     }
-    let line = Line::from(spans.drain(..).collect::<Vec<_>>());
+    let line = Line::from(std::mem::take(spans));
     lines.push(line);
 }
 
@@ -424,7 +420,7 @@ fn wrap_lines(lines: &mut Vec<Line<'static>>, max_width: usize) {
                 while pos < chars.len() {
                     let remaining = max_width.saturating_sub(current_width);
                     if remaining == 0 && !current_spans.is_empty() {
-                        wrapped.push(Line::from(current_spans.drain(..).collect::<Vec<_>>()));
+                        wrapped.push(Line::from(std::mem::take(&mut current_spans)));
                         current_width = 0;
                         continue;
                     }
@@ -435,7 +431,7 @@ fn wrap_lines(lines: &mut Vec<Line<'static>>, max_width: usize) {
                     pos += chunk_len;
 
                     if pos < chars.len() {
-                        wrapped.push(Line::from(current_spans.drain(..).collect::<Vec<_>>()));
+                        wrapped.push(Line::from(std::mem::take(&mut current_spans)));
                         current_width = 0;
                     }
                 }

@@ -1,7 +1,8 @@
+#![allow(clippy::type_complexity)]
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::{
     app::sessions::SessionStatus,

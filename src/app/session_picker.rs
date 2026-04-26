@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use nucleo::{
-    pattern::{CaseMatching, Normalization},
     Config, Nucleo,
+    pattern::{CaseMatching, Normalization},
 };
 
 use crate::data::db::{models::DbSessionSummary, reader::DbReader};
@@ -105,17 +105,16 @@ impl SessionPickerState {
             return None;
         }
         let sel = self.selected.min(count as usize - 1);
-        let item = snapshot.matched_items(sel as u32..(sel as u32 + 1)).next()?;
+        let item = snapshot
+            .matched_items(sel as u32..(sel as u32 + 1))
+            .next()?;
         let idx = *item.data;
         self.entries.get(idx).cloned()
     }
 
     /// Returns visible entries in rank order with match char indices for highlighting.
     /// Each entry gets separate index lists for repo, title, and directory.
-    pub fn visible_entries(
-        &self,
-        page_size: usize,
-    ) -> Vec<VisibleEntry> {
+    pub fn visible_entries(&self, page_size: usize) -> Vec<VisibleEntry> {
         let snapshot = self.matcher.snapshot();
         let count = snapshot.matched_item_count() as usize;
         if count == 0 {
@@ -205,10 +204,7 @@ fn entry_from_summary(summary: &DbSessionSummary) -> SessionPickerEntry {
 
     let (directory, dir_path) = if summary.directory.as_os_str().is_empty() {
         (
-            summary
-                .worktree
-                .to_string_lossy()
-                .to_string(),
+            summary.worktree.to_string_lossy().to_string(),
             summary.worktree.clone(),
         )
     } else {

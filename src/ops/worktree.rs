@@ -77,10 +77,10 @@ fn resolve_base_branch(repo_dir: &Path) -> anyhow::Result<String> {
         let value = String::from_utf8_lossy(&origin_head.stdout)
             .trim()
             .to_string();
-        if let Some(branch) = value.rsplit('/').next() {
-            if !branch.is_empty() {
-                return Ok(branch.to_string());
-            }
+        if let Some(branch) = value.rsplit('/').next()
+            && !branch.is_empty()
+        {
+            return Ok(branch.to_string());
         }
     }
 

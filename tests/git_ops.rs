@@ -1,24 +1,39 @@
+use opencode_multiplexer::ops::git::{
+    diff_worktree, find_serve_port_for_cwd_with_entries, get_file_statuses,
+    repo_relative_session_files,
+};
+use opencode_multiplexer::registry::ServeEntry;
 use std::{
     fs,
     path::PathBuf,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
-use ocmux_rs::ops::git::{
-    diff_worktree, find_serve_port_for_cwd_with_entries, get_file_statuses,
-    repo_relative_session_files,
-};
-use ocmux_rs::registry::ServeEntry;
 
 fn temp_repo_dir(label: &str) -> PathBuf {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     std::env::temp_dir().join(format!("ocmux-rs-repo-{}-{}", label, nanos))
 }
 
 fn git_init(dir: &PathBuf) {
-    Command::new("git").arg("init").current_dir(dir).status().unwrap();
-    Command::new("git").args(["config", "user.name", "Test"]).current_dir(dir).status().unwrap();
-    Command::new("git").args(["config", "user.email", "test@example.com"]).current_dir(dir).status().unwrap();
+    Command::new("git")
+        .arg("init")
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(dir)
+        .status()
+        .unwrap();
 }
 
 #[test]
@@ -60,8 +75,16 @@ fn get_file_statuses_categorizes_created_modified_deleted() {
     // Initial commit (baseline)
     fs::write(repo.join("to_modify.txt"), "v1").unwrap();
     fs::write(repo.join("to_delete.txt"), "v1").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     // Create untracked, modify tracked, delete tracked
     fs::write(repo.join("created.txt"), "v1").unwrap();
@@ -70,16 +93,13 @@ fn get_file_statuses_categorizes_created_modified_deleted() {
 
     // Session claims to have touched the created and modified files,
     // but knows nothing about the deleted file (bash rm scenario)
-    let session_files = vec![
-        "created.txt".to_string(),
-        "to_modify.txt".to_string(),
-    ];
+    let session_files = vec!["created.txt".to_string(), "to_modify.txt".to_string()];
 
     let (created, modified, deleted) = get_file_statuses(&repo, &session_files).unwrap();
 
     assert_eq!(created, vec!["created.txt"]);
     assert_eq!(modified, vec!["to_modify.txt"]);
-    
+
     // The deleted file MUST be included even though it wasn't in session_files
     assert_eq!(deleted, vec!["to_delete.txt"]);
 
@@ -98,8 +118,16 @@ fn diff_worktree_includes_tracked_modifications() {
     git_init(&repo);
 
     fs::write(repo.join("file.txt"), "v1").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     fs::write(repo.join("file.txt"), "v2").unwrap();
 
@@ -119,8 +147,16 @@ fn diff_worktree_includes_deleted_files() {
     git_init(&repo);
 
     fs::write(repo.join("gone.txt"), "bye").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     fs::remove_file(repo.join("gone.txt")).unwrap();
 
@@ -140,13 +176,24 @@ fn diff_worktree_includes_untracked_new_files() {
 
     // Need an initial commit so HEAD exists.
     fs::write(repo.join("init.txt"), "x").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     fs::write(repo.join("brand_new.txt"), "hello").unwrap();
 
     let diff = diff_worktree(&repo).unwrap();
-    assert!(diff.contains("--- /dev/null"), "expected /dev/null for new file");
+    assert!(
+        diff.contains("--- /dev/null"),
+        "expected /dev/null for new file"
+    );
     assert!(diff.contains("+hello"), "expected new file content");
 
     fs::remove_dir_all(repo).ok();
@@ -160,8 +207,16 @@ fn diff_worktree_combined_output() {
     git_init(&repo);
 
     fs::write(repo.join("existing.txt"), "old").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     // Modify tracked file.
     fs::write(repo.join("existing.txt"), "new").unwrap();
@@ -169,9 +224,15 @@ fn diff_worktree_combined_output() {
     fs::write(repo.join("fresh.txt"), "brand new").unwrap();
 
     let diff = diff_worktree(&repo).unwrap();
-    assert!(diff.contains("existing.txt"), "expected modified file in diff");
+    assert!(
+        diff.contains("existing.txt"),
+        "expected modified file in diff"
+    );
     assert!(diff.contains("fresh.txt"), "expected new file in diff");
-    assert!(diff.contains("--- /dev/null"), "expected /dev/null for new file");
+    assert!(
+        diff.contains("--- /dev/null"),
+        "expected /dev/null for new file"
+    );
 
     fs::remove_dir_all(repo).ok();
 }
@@ -184,15 +245,26 @@ fn diff_worktree_excludes_opencode_dir() {
     git_init(&repo);
 
     fs::write(repo.join("init.txt"), "x").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     // Create an untracked .opencode/ file — should be excluded.
     fs::create_dir_all(repo.join(".opencode")).unwrap();
     fs::write(repo.join(".opencode/state.json"), "{}").unwrap();
 
     let diff = diff_worktree(&repo).unwrap();
-    assert!(!diff.contains(".opencode"), "expected .opencode files to be excluded");
+    assert!(
+        !diff.contains(".opencode"),
+        "expected .opencode files to be excluded"
+    );
 
     fs::remove_dir_all(repo).ok();
 }
@@ -205,11 +277,22 @@ fn diff_worktree_empty_when_clean() {
     git_init(&repo);
 
     fs::write(repo.join("file.txt"), "v1").unwrap();
-    Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-    Command::new("git").args(["commit", "-m", "init"]).current_dir(&repo).status().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&repo)
+        .status()
+        .unwrap();
 
     let diff = diff_worktree(&repo).unwrap();
-    assert!(diff.is_empty(), "expected empty diff for clean repo, got: {diff}");
+    assert!(
+        diff.is_empty(),
+        "expected empty diff for clean repo, got: {diff}"
+    );
 
     fs::remove_dir_all(repo).ok();
 }
@@ -225,8 +308,18 @@ fn find_serve_port_exact_match() {
     let dir = fs::canonicalize(&dir).unwrap();
 
     let entries = vec![
-        ServeEntry { port: 4200, pid: 1, cwd: "/some/other/path".to_string(), tui_pid: None },
-        ServeEntry { port: 4201, pid: 2, cwd: dir.display().to_string(), tui_pid: None },
+        ServeEntry {
+            port: 4200,
+            pid: 1,
+            cwd: "/some/other/path".to_string(),
+            tui_pid: None,
+        },
+        ServeEntry {
+            port: 4201,
+            pid: 2,
+            cwd: dir.display().to_string(),
+            tui_pid: None,
+        },
     ];
 
     let port = find_serve_port_for_cwd_with_entries(&dir, &entries);
@@ -244,9 +337,12 @@ fn find_serve_port_no_match_returns_none_for_nonexistent_paths() {
     // All entries have non-existent paths so canonicalize can't help.
     // They share "/" with the session dir so common_ancestor_depth > 0,
     // but this tests that the function doesn't panic.
-    let entries = vec![
-        ServeEntry { port: 4200, pid: 1, cwd: "/totally/unrelated/path".to_string(), tui_pid: None },
-    ];
+    let entries = vec![ServeEntry {
+        port: 4200,
+        pid: 1,
+        cwd: "/totally/unrelated/path".to_string(),
+        tui_pid: None,
+    }];
 
     let _port = find_serve_port_for_cwd_with_entries(&dir, &entries);
     // Just verify it doesn't panic — on Unix, all paths share "/" so
@@ -263,9 +359,19 @@ fn find_serve_port_prefers_exact_over_ancestor() {
 
     let entries = vec![
         // Parent directory — longer common ancestor but not exact.
-        ServeEntry { port: 4200, pid: 1, cwd: parent.display().to_string(), tui_pid: None },
+        ServeEntry {
+            port: 4200,
+            pid: 1,
+            cwd: parent.display().to_string(),
+            tui_pid: None,
+        },
         // Exact match.
-        ServeEntry { port: 4201, pid: 2, cwd: dir.display().to_string(), tui_pid: None },
+        ServeEntry {
+            port: 4201,
+            pid: 2,
+            cwd: dir.display().to_string(),
+            tui_pid: None,
+        },
     ];
 
     let port = find_serve_port_for_cwd_with_entries(&dir, &entries);
@@ -282,9 +388,12 @@ fn find_serve_port_trailing_slash() {
 
     // Entry cwd has trailing slash — canonicalize should strip it.
     let cwd_with_slash = format!("{}/", dir.display());
-    let entries = vec![
-        ServeEntry { port: 4205, pid: 3, cwd: cwd_with_slash, tui_pid: None },
-    ];
+    let entries = vec![ServeEntry {
+        port: 4205,
+        pid: 3,
+        cwd: cwd_with_slash,
+        tui_pid: None,
+    }];
 
     let port = find_serve_port_for_cwd_with_entries(&dir, &entries);
     assert_eq!(port, Some(4205));
