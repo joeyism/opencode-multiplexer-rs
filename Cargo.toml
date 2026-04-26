@@ -1,5 +1,5 @@
 [package]
-name = "ocmux-rs"
+name = "opencode-multiplexer"
 version = "0.3.0"
 edition = "2024"
 description = "A terminal multiplexer for managing OpenCode sessions"
