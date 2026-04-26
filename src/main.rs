@@ -759,22 +759,21 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         KeyCode::Char('N') => {
                             diff_view.prev_match(vp);
                         }
-                        KeyCode::Enter => {
-                            if diff_view.is_visual() {
-                                if let Some(text) = diff_view.format_selection() {
-                                    diff_view.close();
-                                    state.last_main_focus = AppFocus::Terminal;
-                                    reduce(&mut state, Action::SetFocus(AppFocus::Terminal));
-                                    if let Some(pty) = manager.active_session_mut() {
-                                        let _ = pty.send_paste(&text);
-                                    }
-                                    footer_message = None;
-                                } else {
-                                    footer_message =
-                                        Some("No valid lines in selection".to_string());
+                        KeyCode::Enter if diff_view.is_visual() => {
+                            if let Some(text) = diff_view.format_selection() {
+                                diff_view.close();
+                                state.last_main_focus = AppFocus::Terminal;
+                                reduce(&mut state, Action::SetFocus(AppFocus::Terminal));
+                                if let Some(pty) = manager.active_session_mut() {
+                                    let _ = pty.send_paste(&text);
                                 }
+                                footer_message = None;
+                            } else {
+                                footer_message =
+                                    Some("No valid lines in selection".to_string());
                             }
                         }
+                        KeyCode::Enter => {}
                         KeyCode::Char(c) if c == config.keybindings.diff => {
                             let return_focus = diff_view.close();
                             state.last_main_focus = AppFocus::Terminal;
@@ -814,13 +813,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         footer_message = Some(format!("paste failed: {error}"));
                     }
                 }
-                Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Down(_)) => {
-                    if mouse.column < config.sidebar_width {
-                        state.focus = AppFocus::Sidebar;
-                        let clicked_row = mouse.row.saturating_sub(1) as usize;
-                        if clicked_row < rows.len() {
-                            state.selected_sidebar_row = clicked_row;
-                        }
+                Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Down(_)) && mouse.column < config.sidebar_width => {
+                    state.focus = AppFocus::Sidebar;
+                    let clicked_row = mouse.row.saturating_sub(1) as usize;
+                    if clicked_row < rows.len() {
+                        state.selected_sidebar_row = clicked_row;
                     }
                 }
                 Event::Mouse(mouse)
