@@ -203,7 +203,7 @@ fn manager_can_attach_arbitrary_session() {
         )
         .unwrap();
 
-    let active = manager.active_session().unwrap();
+    let _active = manager.active_session().unwrap();
     let summary = manager.selected_summary().unwrap();
 
     assert_eq!(summary.session_id.as_deref(), Some("sess_xyz"));
@@ -464,7 +464,7 @@ fn find_by_process_pid_matches_serve_pid() {
 fn apply_poll_snapshot_updates_via_serve_pid() {
     let mut manager = PtyManager::default();
 
-    let id = manager.register_placeholder(
+    let _id = manager.register_placeholder(
         PathBuf::from("/tmp/project"),
         "project".into(),
         SessionStatus::Idle,

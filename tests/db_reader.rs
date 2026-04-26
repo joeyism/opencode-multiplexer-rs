@@ -179,7 +179,7 @@ fn reads_all_sessions_including_archived_with_user_message_times() {
     assert_eq!(all[0].time_updated, 25);
 
     assert_eq!(all[1].id, "sess_2");
-    assert_eq!(all[1].archived, true);
+    assert!(all[1].archived);
     assert_eq!(all[1].time_updated, 5); // Fallback to session.time_created
 
     std::fs::remove_file(db_path).ok();

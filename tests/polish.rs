@@ -242,7 +242,7 @@ fn sidebar_text_pads_left_side_so_time_is_right_aligned() {
         false,
     );
     let count = text.chars().count();
-    assert!(count >= 20 && count <= 22, "got {count}");
+    assert!((20..=22).contains(&count), "got {count}");
     assert!(text.ends_with("70d"));
     std::fs::remove_dir_all(&root).ok();
 }
