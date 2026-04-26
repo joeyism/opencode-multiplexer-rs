@@ -338,7 +338,7 @@ pub fn repo_relative_session_files(
             let rel = file
                 .strip_prefix(&root_str)
                 .unwrap()
-                .trim_start_matches('/');
+                .trim_start_matches(|c| c == '/' || c == '\\');
             files.push(rel.to_string());
         } else if !Path::new(file).is_absolute() {
             files.push(file.clone());
