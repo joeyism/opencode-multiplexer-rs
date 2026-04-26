@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 pub fn cwd_for_pid(pid: u32) -> anyhow::Result<Option<PathBuf>> {
     #[cfg(target_os = "macos")]
