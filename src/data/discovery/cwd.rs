@@ -16,13 +16,12 @@ pub fn cwd_for_pid(pid: u32) -> anyhow::Result<Option<PathBuf>> {
             .lines()
             .find(|line| line.contains(" cwd "))
             .map(|line| {
-                line.trim()
-                    .split_whitespace()
+                line.split_whitespace()
                     .skip(8)
                     .collect::<Vec<_>>()
                     .join(" ")
             });
-        return Ok(cwd.filter(|value| !value.is_empty()).map(PathBuf::from));
+        Ok(cwd.filter(|value| !value.is_empty()).map(PathBuf::from))
     }
 
     #[cfg(not(target_os = "macos"))]
