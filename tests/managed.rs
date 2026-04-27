@@ -414,7 +414,10 @@ fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
 
     // Spawn a short-lived process that exits immediately
     #[cfg(unix)]
-    let (shell, arg) = (std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()), "-c");
+    let (shell, arg) = (
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
+        "-c",
+    );
     #[cfg(windows)]
     let (shell, arg) = ("cmd.exe".to_string(), "/c");
 
