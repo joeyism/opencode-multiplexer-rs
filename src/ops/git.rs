@@ -320,9 +320,8 @@ fn repo_root(cwd: &Path) -> anyhow::Result<PathBuf> {
     if !output.status.success() {
         anyhow::bail!("not inside a git repository");
     }
-    Ok(PathBuf::from(
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-    ))
+    let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    Ok(std::fs::canonicalize(&path).unwrap_or(path))
 }
 
 pub fn repo_relative_session_files(
