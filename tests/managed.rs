@@ -434,11 +434,15 @@ fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
         "PTY should be active before exit"
     );
 
-    // Wait briefly for the child to exit
-    std::thread::sleep(std::time::Duration::from_millis(200));
-
-    // Reap should detect the dead child
-    let exited = manager.reap_exited_ptys();
+    // Wait for the child to exit (up to 2 seconds)
+    let mut exited = vec![];
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        exited = manager.reap_exited_ptys();
+        if exited.contains(&id) {
+            break;
+        }
+    }
     assert!(exited.contains(&id), "should report exited session id");
 
     // PTY slot cleared but sidebar entry preserved
