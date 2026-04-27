@@ -206,6 +206,7 @@ fn manager_can_attach_arbitrary_session() {
         if err_str.contains("No such file or directory")
             || err_str.contains("not found")
             || err_str.contains("No viable candidates found in PATH")
+            || err_str.contains("The system cannot find the file specified")
         {
             return;
         }
@@ -412,9 +413,13 @@ fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
     );
 
     // Spawn a short-lived process that exits immediately
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    #[cfg(unix)]
+    let (shell, arg) = (std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()), "-c");
+    #[cfg(windows)]
+    let (shell, arg) = ("cmd.exe".to_string(), "/c");
+
     let mut cmd = CommandBuilder::new(shell);
-    cmd.args(["-c", "exit 0"]);
+    cmd.args([arg, "exit 0"]);
     let pty = PtySession::spawn_test_command(cmd, 24, 80).expect("spawn test command");
     manager.insert_pty_for_session(id, pty);
 
