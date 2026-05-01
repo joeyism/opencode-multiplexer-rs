@@ -1,6 +1,7 @@
 pub mod app;
 pub mod config;
 pub mod data;
+pub mod notify;
 pub mod ops;
 pub mod registry;
 pub mod terminal;

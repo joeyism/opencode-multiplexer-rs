@@ -18,6 +18,13 @@ use crate::data::{
 use crate::registry::{load_managed_sessions, load_serve_registry};
 use chrono::DateTime;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscoverySource {
+    TuiExplicit,
+    TuiHeuristic,
+    Serve,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredSessionInfo {
     pub session_id: String,
@@ -30,6 +37,8 @@ pub struct DiscoveredSessionInfo {
     pub time_updated: Option<i64>,
     pub has_children: bool,
     pub children: Vec<ChildSessionInfo>,
+    pub serve_port: Option<u16>,
+    pub source: DiscoverySource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +97,7 @@ pub fn start_poller(poll_tx: Sender<PollSnapshot>) -> PollerHandle {
                 let _ = poll_tx.send(snapshot);
             }
 
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(1));
         }
     });
 
@@ -112,6 +121,58 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
         .into_iter()
         .filter_map(|e| e.tui_pid)
         .collect();
+    for serve_process in serve_processes {
+        for serve_session_id in
+            fetch_recent_serve_session_ids(serve_process.port).unwrap_or_default()
+        {
+            if seen.contains(&serve_session_id) {
+                continue;
+            }
+            let Some(session) = reader.get_session_by_id(&serve_session_id)? else {
+                continue;
+            };
+            if !reader.is_top_level_session(&serve_session_id)? {
+                continue;
+            }
+            let status = reader.get_session_status(&serve_session_id)?;
+            if !should_include_serve_session(&ServeSessionInfo {
+                is_top_level: true,
+                is_managed: managed_sessions.contains(&serve_session_id),
+                status,
+            }) {
+                continue;
+            }
+            seen.insert(serve_session_id.clone());
+            let cwd = if session.directory.as_os_str().is_empty() {
+                if let Some(proj) = projects
+                    .iter()
+                    .find(|project| project.id == session.project_id)
+                {
+                    proj.worktree.clone()
+                } else {
+                    continue; // Skip if no valid directory or project worktree exists
+                }
+            } else {
+                session.directory.clone()
+            };
+            sessions.push(DiscoveredSessionInfo {
+                session_id: serve_session_id.clone(),
+                cwd,
+                title: session.title.clone(),
+                status,
+                process_pid: Some(serve_process.pid),
+                model: reader.get_session_model(&serve_session_id)?,
+                preview: reader
+                    .get_last_message_preview(&serve_session_id)?
+                    .map(|preview| preview.text),
+                time_updated: Some(session.time_updated),
+                has_children: reader.has_child_sessions(&serve_session_id)?,
+                children: collect_children(&reader, &serve_session_id, 2)?,
+                serve_port: Some(serve_process.port),
+                source: DiscoverySource::Serve,
+            });
+        }
+    }
 
     for process in processes {
         if process.session_id.is_none() && managed_tui_pids.contains(&process.pid) {
@@ -124,13 +185,16 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
             continue;
         };
 
-        let session = if let Some(session_id) = process.session_id.as_deref() {
-            reader.get_session_by_id(session_id)?
+        let (session, source) = if let Some(session_id) = process.session_id.as_deref() {
+            (
+                reader.get_session_by_id(session_id)?,
+                DiscoverySource::TuiExplicit,
+            )
         } else {
             let offset = offsets.entry(project.id.clone()).or_insert(0);
             let session = reader.get_most_recent_session(&project.id, *offset)?;
             *offset += 1;
-            session
+            (session, DiscoverySource::TuiHeuristic)
         };
 
         let Some(session) = session else {
@@ -165,57 +229,41 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
             time_updated: Some(session.time_updated),
             has_children: reader.has_child_sessions(&session.id)?,
             children: collect_children(&reader, &session.id, 2)?,
+            serve_port: None,
+            source,
         });
     }
 
-    for serve_process in serve_processes {
-        for serve_session_id in
-            fetch_recent_serve_session_ids(serve_process.port).unwrap_or_default()
-        {
-            if !seen.insert(serve_session_id.clone()) {
-                continue;
-            }
-            let Some(session) = reader.get_session_by_id(&serve_session_id)? else {
-                continue;
-            };
-            if !reader.is_top_level_session(&serve_session_id)? {
-                continue;
-            }
-            let status = reader.get_session_status(&serve_session_id)?;
-            if !should_include_serve_session(&ServeSessionInfo {
-                is_top_level: true,
-                is_managed: managed_sessions.contains(&serve_session_id),
-                status,
-            }) {
-                continue;
-            }
-            let cwd = if session.directory.as_os_str().is_empty() {
-                if let Some(proj) = projects
-                    .iter()
-                    .find(|project| project.id == session.project_id)
-                {
-                    proj.worktree.clone()
-                } else {
-                    continue; // Skip if no valid directory or project worktree exists
-                }
-            } else {
-                session.directory.clone()
-            };
-            sessions.push(DiscoveredSessionInfo {
-                session_id: serve_session_id.clone(),
-                cwd,
-                title: session.title.clone(),
-                status,
-                process_pid: Some(serve_process.pid),
-                model: reader.get_session_model(&serve_session_id)?,
-                preview: reader
-                    .get_last_message_preview(&serve_session_id)?
-                    .map(|preview| preview.text),
-                time_updated: Some(session.time_updated),
-                has_children: reader.has_child_sessions(&serve_session_id)?,
-                children: collect_children(&reader, &serve_session_id, 2)?,
-            });
+    for managed_id in managed_sessions {
+        if !seen.insert(managed_id.clone()) {
+            continue;
         }
+        let Some(session) = reader.get_session_by_id(&managed_id)? else {
+            continue;
+        };
+        let cwd = if session.directory.as_os_str().is_empty() {
+            if let Some(proj) = projects.iter().find(|project| project.id == session.project_id) {
+                proj.worktree.clone()
+            } else {
+                continue;
+            }
+        } else {
+            session.directory.clone()
+        };
+        sessions.push(DiscoveredSessionInfo {
+            session_id: managed_id.clone(),
+            cwd,
+            title: session.title.clone(),
+            status: reader.get_session_status(&managed_id)?,
+            process_pid: None,
+            model: reader.get_session_model(&managed_id)?,
+            preview: reader.get_last_message_preview(&managed_id)?.map(|preview| preview.text),
+            time_updated: Some(session.time_updated),
+            has_children: reader.has_child_sessions(&managed_id)?,
+            children: collect_children(&reader, &managed_id, 2)?,
+            serve_port: None,
+            source: DiscoverySource::TuiExplicit,
+        });
     }
 
     Ok(PollSnapshot { sessions })

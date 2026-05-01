@@ -54,6 +54,10 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
 
     let header = Row::new(vec![
         Cell::from(Span::styled(
+            "",
+            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+        )),
+        Cell::from(Span::styled(
             "Repo",
             Style::default()
                 .add_modifier(Modifier::BOLD)
@@ -79,10 +83,27 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
         )),
     ]);
 
+    let widths = [
+        Constraint::Length(2),
+        Constraint::Length(18),
+        Constraint::Min(20),
+        Constraint::Min(24),
+        Constraint::Length(8),
+    ];
+
+    // Estimate directory column width so we can truncate from the left
+    // and keep the end of the path (where worktree names live) visible.
+    // Table default column_spacing is 1, so subtract gaps between columns.
+    let spacing = 1u16;
+    let num_cols = widths.len() as u16;
+    let content_width = table_area.width.saturating_sub(spacing * (num_cols - 1));
+    let [_, _, _, dir_col, _] = Layout::horizontal(widths).areas(Rect::new(0, 0, content_width, 1));
+    let dir_col_width = dir_col.width as usize;
+
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
-        .map(|(i, (entry, repo_idx, title_idx, dir_idx))| {
+        .map(|(i, (entry, repo_idx, title_idx, dir_idx, is_live))| {
             let is_selected = i + picker.scroll_offset == picker.selected;
             let (normal, highlight) = if is_selected {
                 (selected_style, selected_matched_style)
@@ -90,13 +111,20 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
                 (Style::default(), matched_style)
             };
 
+            let live_cell = if *is_live {
+                Cell::from(Span::styled("●", Style::default().fg(Color::Green)))
+            } else {
+                Cell::from(Span::raw(""))
+            };
             let repo_cell = Cell::from(highlight_text(&entry.repo, repo_idx, normal, highlight));
             let title_cell = Cell::from(highlight_text(&entry.title, title_idx, normal, highlight));
-            let dir_cell = Cell::from(highlight_text(&entry.directory, dir_idx, normal, highlight));
+            let (dir_text, dir_indices) =
+                truncate_left_with_indices(&entry.directory, dir_idx, dir_col_width);
+            let dir_cell = Cell::from(highlight_text(&dir_text, &dir_indices, normal, highlight));
             let time = relative_time_from_updated(Some(entry.time_updated));
             let time_cell = Cell::from(Span::styled(time, normal));
 
-            let row = Row::new(vec![repo_cell, title_cell, dir_cell, time_cell]);
+            let row = Row::new(vec![live_cell, repo_cell, title_cell, dir_cell, time_cell]);
             if is_selected {
                 row.style(selected_style)
             } else {
@@ -104,13 +132,6 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
             }
         })
         .collect();
-
-    let widths = [
-        Constraint::Length(18),
-        Constraint::Min(20),
-        Constraint::Min(24),
-        Constraint::Length(8),
-    ];
 
     let table = Table::new(rows, widths).header(header);
     frame.render_widget(table, table_area);
@@ -129,6 +150,29 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
         ),
     ]);
     frame.render_widget(Paragraph::new(footer), footer_area);
+}
+
+/// Truncate text from the left, keeping the last `max_width - 3` characters
+/// and prepending "...". Returns the truncated text plus remapped match indices.
+fn truncate_left_with_indices(text: &str, indices: &[u32], max_width: usize) -> (String, Vec<u32>) {
+    let char_count = text.chars().count();
+    if char_count <= max_width || max_width <= 3 {
+        return (text.to_string(), indices.to_vec());
+    }
+
+    let keep = max_width - 3; // space for "..."
+    let skip = char_count - keep;
+
+    let truncated: String = text.chars().skip(skip).collect();
+    let result = format!("...{truncated}");
+
+    let remapped: Vec<u32> = indices
+        .iter()
+        .filter(|&&i| i >= skip as u32)
+        .map(|&i| i - skip as u32 + 3)
+        .collect();
+
+    (result, remapped)
 }
 
 /// Build a Line with matched character indices highlighted.
@@ -171,4 +215,37 @@ fn highlight_text(
     }
 
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_truncation_when_text_fits() {
+        let (text, idx) = truncate_left_with_indices("hello", &[1, 3], 10);
+        assert_eq!(text, "hello");
+        assert_eq!(idx, vec![1, 3]);
+    }
+
+    #[test]
+    fn truncates_from_left_and_remaps_indices() {
+        let (text, idx) = truncate_left_with_indices("hello world", &[6, 10], 8);
+        assert_eq!(text, "...world");
+        assert_eq!(idx, vec![3, 7]); // 'w' at 6 -> 3, 'd' at 10 -> 7
+    }
+
+    #[test]
+    fn drops_indices_in_removed_prefix() {
+        let (text, idx) = truncate_left_with_indices("hello world", &[1, 6], 8);
+        assert_eq!(text, "...world");
+        assert_eq!(idx, vec![3]); // 'w' at 6 -> 3, index 1 was dropped
+    }
+
+    #[test]
+    fn returns_empty_for_tiny_width() {
+        let (text, idx) = truncate_left_with_indices("hello", &[1], 2);
+        assert_eq!(text, "hello");
+        assert_eq!(idx, vec![1]);
+    }
 }

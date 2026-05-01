@@ -8,7 +8,7 @@ use crate::{
     app::sessions::SessionStatus,
     data::db::models::{
         DbConversationMessage, DbConversationPart, DbProject, DbSession, DbSessionSummary,
-        SessionPreview,
+        DbUserMessage, SessionPreview,
     },
 };
 
@@ -392,6 +392,54 @@ impl DbReader {
                 agent,
                 parts,
             });
+        }
+
+        Ok(messages)
+    }
+
+    pub fn get_all_user_messages(&self) -> anyhow::Result<Vec<DbUserMessage>> {
+        let mut stmt = self.conn.prepare(
+            "WITH recent_user_messages AS (
+                SELECT m.id, m.session_id, m.time_created,
+                       COALESCE(s.title, '') AS session_title
+                FROM message m
+                JOIN session s ON s.id = m.session_id
+                WHERE json_extract(m.data, '$.role') = 'user'
+                ORDER BY m.time_created DESC, m.id DESC
+                LIMIT 500
+            )
+            SELECT m.id, m.session_id, m.session_title, m.time_created,
+                COALESCE((
+                    SELECT group_concat(part_text, '')
+                    FROM (
+                        SELECT json_extract(p.data, '$.text') AS part_text
+                        FROM part p
+                        WHERE p.message_id = m.id
+                          AND json_extract(p.data, '$.type') = 'text'
+                          AND json_extract(p.data, '$.text') IS NOT NULL
+                        ORDER BY p.time_created ASC, p.id ASC
+                    )
+                ), '') AS text
+            FROM recent_user_messages m
+            ORDER BY m.time_created DESC, m.id DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(DbUserMessage {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                session_title: row.get(2)?,
+                time_created: row.get(3)?,
+                text: row.get(4)?,
+            })
+        })?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            let msg = row?;
+            if !msg.text.trim().is_empty() {
+                messages.push(msg);
+            }
         }
 
         Ok(messages)

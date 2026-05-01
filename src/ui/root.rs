@@ -9,7 +9,7 @@ use ratatui::{
 use crate::{
     app::{
         conversation::ConversationViewState, diff::DiffViewState, focus::AppFocus,
-        session_picker::SessionPickerState,
+        message_picker::MessagePickerState, session_picker::SessionPickerState,
     },
     config::Keybindings,
     terminal::{manager::PtyManager, renderer::TerminalWidget},
@@ -18,6 +18,7 @@ use crate::{
         diff::highlight_search_matches,
         hints::footer_line,
         layout::{centered_rect, split_root},
+        message_picker::render_message_picker,
         session_picker::render_session_picker,
         sidebar::{SidebarVisibleRow, render_sidebar, repo_root_name},
     },
@@ -41,6 +42,7 @@ pub fn render(
     conversation: &ConversationViewState,
     diff: &DiffViewState,
     session_picker: Option<&mut SessionPickerState>,
+    message_picker: Option<&mut MessagePickerState>,
     confirm_quit: bool,
 ) {
     let layout = split_root(frame.area(), sidebar_width, 1);
@@ -366,6 +368,10 @@ pub fn render(
         let popup = centered_rect(frame.area(), 80, 70);
         frame.render_widget(Clear, popup);
         render_session_picker(frame, picker, popup);
+    } else if let Some(picker) = message_picker {
+        let popup = centered_rect(frame.area(), 80, 70);
+        frame.render_widget(Clear, popup);
+        render_message_picker(frame, picker, popup);
     }
 
     if confirm_quit {

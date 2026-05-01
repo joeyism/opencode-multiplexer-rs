@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::{
     app::sessions::{SessionList, SessionOrigin, SessionStatus, SessionSummary},
-    data::poller::{ChildSessionInfo, PollSnapshot},
+    data::poller::{ChildSessionInfo, DiscoverySource, PollSnapshot},
     ui::sidebar::{ChildSidebarEntry, SidebarEntry},
 };
 
@@ -25,6 +25,7 @@ impl PtyManager {
         origin: SessionOrigin,
         process_pid: Option<u32>,
         serve_pid: Option<u32>,
+        serve_port: Option<u16>,
         model: Option<String>,
         preview: Option<String>,
         time_updated: Option<i64>,
@@ -39,6 +40,7 @@ impl PtyManager {
             origin,
             process_pid,
             serve_pid,
+            serve_port,
             model,
             preview,
             time_updated,
@@ -56,7 +58,10 @@ impl PtyManager {
         rows: u16,
         cols: u16,
     ) -> anyhow::Result<u64> {
-        use crate::ops::opencode::{find_available_port, spawn_serve_daemon, wait_for_serve_ready};
+        use crate::ops::opencode::{
+            fetch_serve_session_ids, find_available_port, spawn_serve_daemon,
+            wait_for_new_session_id, wait_for_serve_ready,
+        };
         use crate::registry::{register_serve_process, update_serve_registry_tui_pid};
 
         // Spawn serve daemon as persistent backend
@@ -69,13 +74,20 @@ impl PtyManager {
             anyhow::bail!("opencode serve did not start within 10s on port {}", port);
         }
 
+        // Snapshot session IDs on this serve BEFORE spawning TUI
+        let before_ids = fetch_serve_session_ids(port).unwrap_or_default();
+
         // Spawn TUI client as a disposable PTY (always fresh, no -s flag)
         let pty = PtySession::spawn_managed(&cwd, rows, cols)?;
-        let session_id = None;
         let process_pid = pty.process_id();
         if let Some(pid) = process_pid {
             let _ = update_serve_registry_tui_pid(port, pid);
         }
+
+        // Resolve session_id via before/after diff on the home serve port.
+        // The TUI creates a new session on this serve — detect it by diffing.
+        let session_id = wait_for_new_session_id(port, &before_ids, 10);
+
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -88,6 +100,7 @@ impl PtyManager {
             SessionOrigin::Managed,
             process_pid,
             Some(serve_pid),
+            Some(port),
             None,
             None,
             Some(now_ms),
@@ -112,8 +125,13 @@ impl PtyManager {
             };
             if let Some(session_id) = summary.session_id.as_deref() {
                 let pty = PtySession::spawn_replica(&summary.cwd, session_id, rows, cols)?;
+                let process_pid = pty.process_id();
                 if let Some(slot) = self.ptys.get_mut(&selected_id) {
                     *slot = Some(pty);
+                }
+                if let Some(summary) = self.sessions.get_mut(selected_id) {
+                    summary.origin = SessionOrigin::Managed;
+                    summary.process_pid = process_pid;
                 }
             }
         }
@@ -136,6 +154,22 @@ impl PtyManager {
     ) -> anyhow::Result<()> {
         let pty = PtySession::spawn_replica(&cwd, &session_id, rows, cols)?;
         let process_pid = pty.process_id();
+
+        if let Some(existing_id) = self.sessions.find_by_session_id(&session_id) {
+            if let Some(summary) = self.sessions.get_mut(existing_id) {
+                summary.origin = SessionOrigin::Managed;
+                summary.title = title;
+                summary.status = status;
+                summary.process_pid = process_pid;
+                summary.time_updated = time_updated;
+                // DO NOT overwrite serve_pid / serve_port here, they might be valid.
+            }
+            self.ptys.insert(existing_id, Some(pty));
+            self.sessions.select_id(existing_id);
+            self.sessions.activate_selected();
+            return Ok(());
+        }
+
         let id = self.sessions.push(
             cwd,
             title,
@@ -143,6 +177,7 @@ impl PtyManager {
             Some(session_id),
             SessionOrigin::Managed,
             process_pid,
+            None,
             None,
             None,
             None,
@@ -161,6 +196,10 @@ impl PtyManager {
 
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
+    }
+
+    pub fn sessions(&self) -> &SessionList {
+        &self.sessions
     }
 
     pub fn active_id(&self) -> Option<u64> {
@@ -339,27 +378,52 @@ impl PtyManager {
             .collect::<std::collections::HashSet<_>>();
 
         for discovered in snapshot.sessions {
-            if let Some(id) = self.sessions.find_by_session_id(&discovered.session_id) {
-                if let Some(summary) = self.sessions.get_mut(id) {
-                    summary.cwd = discovered.cwd.clone();
-                    summary.title = discovered.title.clone();
-                    summary.status = discovered.status;
-                    if summary.serve_pid != discovered.process_pid {
-                        summary.process_pid = discovered.process_pid;
-                    }
-                    summary.model = discovered.model.clone();
-                    summary.preview = discovered.preview.clone();
-                    summary.time_updated = discovered.time_updated;
-                    summary.has_children = discovered.has_children;
-                    summary.children = discovered.children.clone();
-                }
-                continue;
-            }
+            // Try to find an existing session to update, in order of reliability:
+            // 1. By session_id (exact DB identity — most reliable)
+            // 2. By process PID (matches process_pid or serve_pid)
+            // 3. By serve port (only if not already matched — can be wrong when
+            //    multiple serves share the same DB)
+            // 4. By cwd for managed sessions with unresolved session_id
+            let matched_id = self
+                .sessions
+                .find_by_session_id(&discovered.session_id)
+                .or_else(|| {
+                    discovered
+                        .process_pid
+                        .and_then(|pid| self.sessions.find_by_process_pid(pid))
+                })
+                .or_else(|| {
+                    discovered
+                        .serve_port
+                        .and_then(|port| self.sessions.find_by_serve_port(port))
+                })
+                .or_else(|| {
+                    // Match managed sessions that don't have a session_id yet by cwd.
+                    self.sessions
+                        .items()
+                        .iter()
+                        .find(|s| {
+                            s.origin == SessionOrigin::Managed
+                                && s.session_id.is_none()
+                                && s.cwd == discovered.cwd
+                        })
+                        .map(|s| s.id)
+                });
 
-            if let Some(process_pid) = discovered.process_pid
-                && let Some(id) = self.sessions.find_by_process_pid(process_pid)
-            {
+            if let Some(id) = matched_id {
                 if let Some(summary) = self.sessions.get_mut(id) {
+                    // Guard: do not let a heuristic TUI discovery claim a managed
+                    // session that has a serve backend. The heuristic
+                    // (get_most_recent_session) can guess the wrong session.
+                    let is_heuristic = matches!(discovered.source, DiscoverySource::TuiHeuristic);
+                    let has_serve_backend =
+                        summary.origin == SessionOrigin::Managed && summary.serve_port.is_some();
+
+                    // Allow the heuristic if the session doesn't have an ID yet, to adopt the guessed ID
+                    if is_heuristic && has_serve_backend && summary.session_id.is_some() {
+                        continue;
+                    }
+
                     summary.session_id = Some(discovered.session_id.clone());
                     summary.cwd = discovered.cwd.clone();
                     summary.title = discovered.title.clone();
@@ -372,7 +436,19 @@ impl PtyManager {
                     summary.time_updated = discovered.time_updated;
                     summary.has_children = discovered.has_children;
                     summary.children = discovered.children.clone();
+                    // Only update serve_port for non-managed sessions.
+                    // Managed sessions have an authoritative serve_port set at
+                    // spawn time — a Serve discovery may report a different port
+                    // when multiple serves share the same DB.
+                    if discovered.serve_port.is_some()
+                        && summary.origin != SessionOrigin::Managed
+                    {
+                        summary.serve_port = discovered.serve_port;
+                    }
+                } else {
+                    continue;
                 }
+
                 continue;
             }
 
@@ -384,6 +460,7 @@ impl PtyManager {
                 SessionOrigin::Discovered,
                 discovered.process_pid,
                 None,
+                discovered.serve_port,
                 discovered.model,
                 discovered.preview,
                 discovered.time_updated,

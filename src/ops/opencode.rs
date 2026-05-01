@@ -62,22 +62,42 @@ pub fn wait_for_serve_ready(port: u16, timeout_secs: u64) -> bool {
     false
 }
 
-pub fn get_latest_session_id_from_serve(port: u16) -> anyhow::Result<Option<String>> {
+pub fn fetch_serve_session_ids(port: u16) -> anyhow::Result<std::collections::HashSet<String>> {
     let resp = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?
         .get(format!("http://localhost:{}/session", port))
         .send()?;
     if !resp.status().is_success() {
-        return Ok(None);
+        return Ok(std::collections::HashSet::new());
     }
     let json: serde_json::Value = resp.json()?;
-    let sessions = json.as_array();
-    if let Some(sessions) = sessions
-        && let Some(first) = sessions.first()
-        && let Some(id) = first.get("id").and_then(|v| v.as_str())
-    {
-        return Ok(Some(id.to_string()));
+    let ids = json
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| Some(entry.get("id")?.as_str()?.to_string()))
+        .collect();
+    Ok(ids)
+}
+
+/// Wait for a new session to appear on the serve port that wasn't in `before_ids`.
+/// Returns the new session ID if found within the timeout.
+pub fn wait_for_new_session_id(
+    port: u16,
+    before_ids: &std::collections::HashSet<String>,
+    timeout_secs: u64,
+) -> Option<String> {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    while start.elapsed() < timeout {
+        if let Ok(current_ids) = fetch_serve_session_ids(port) {
+            let new_ids: Vec<_> = current_ids.difference(before_ids).cloned().collect();
+            if let Some(id) = new_ids.into_iter().next() {
+                return Some(id);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
-    Ok(None)
+    None
 }

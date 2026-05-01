@@ -1,4 +1,5 @@
 use crate::app::focus::AppFocus;
+use crate::app::message_picker::MessagePickerState;
 use crate::app::session_picker::SessionPickerState;
 use std::collections::HashSet;
 
@@ -13,6 +14,7 @@ pub struct AppState {
     pub last_main_focus: AppFocus,
     pub show_files: Vec<String>,
     pub session_picker: Option<SessionPickerState>,
+    pub message_picker: Option<MessagePickerState>,
     pub confirm_quit: bool,
 }
 
@@ -29,6 +31,7 @@ impl Default for AppState {
             last_main_focus: AppFocus::Terminal,
             show_files: Vec::new(),
             session_picker: None,
+            message_picker: None,
             confirm_quit: false,
         }
     }

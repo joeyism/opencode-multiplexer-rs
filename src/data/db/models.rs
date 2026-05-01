@@ -52,3 +52,12 @@ pub struct DbConversationPart {
     pub tool_title: Option<String>,
     pub tool_input: Option<String>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbUserMessage {
+    pub id: String,
+    pub session_id: String,
+    pub session_title: String,
+    pub time_created: i64,
+    pub text: String,
+}

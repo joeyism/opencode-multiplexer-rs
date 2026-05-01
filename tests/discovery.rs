@@ -37,6 +37,23 @@ fn parses_node_wrapped_opencode_process() {
 }
 
 #[test]
+fn parses_standalone_dot_opencode_process() {
+    let parsed =
+        parse_process_line("35434 /Users/joey/.nvm/versions/node/v23.10.0/lib/node_modules/opencode-ai/bin/.opencode -s ses_123").unwrap();
+
+    assert_eq!(parsed.pid, 35434);
+    assert_eq!(parsed.session_id.as_deref(), Some("ses_123"));
+}
+
+#[test]
+fn parses_bare_dot_opencode_process() {
+    let parsed = parse_process_line("35434 .opencode").unwrap();
+
+    assert_eq!(parsed.pid, 35434);
+    assert_eq!(parsed.session_id, None);
+}
+
+#[test]
 fn prefers_longest_matching_project_worktree() {
     let projects = vec![
         DbProject {

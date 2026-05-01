@@ -2,7 +2,7 @@ use std::{collections::HashSet, path::PathBuf};
 
 use opencode_multiplexer::{
     app::sessions::{SessionList, SessionOrigin, SessionStatus},
-    data::poller::{DiscoveredSessionInfo, PollSnapshot},
+    data::poller::{DiscoveredSessionInfo, DiscoverySource, PollSnapshot},
     ops::opencode::{build_managed_session_command, build_replica_command, display_title_for_cwd},
     terminal::{manager::PtyManager, pty::PtySession},
     ui::sidebar::flatten_sidebar_entries,
@@ -32,6 +32,8 @@ fn flatten_sidebar_entries_hides_and_shows_children_based_on_expansion() {
                 has_children: false,
                 children: vec![],
             }],
+            serve_port: None,
+            source: DiscoverySource::Serve,
         }],
     });
 
@@ -60,6 +62,7 @@ fn first_session_becomes_active_and_selected() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -69,6 +72,7 @@ fn first_session_becomes_active_and_selected() {
         SessionStatus::Idle,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -98,6 +102,7 @@ fn selecting_next_and_activating_switches_active_session() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -107,6 +112,7 @@ fn selecting_next_and_activating_switches_active_session() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -138,6 +144,7 @@ fn confirming_kill_removes_selected_and_promotes_neighbor() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -147,6 +154,7 @@ fn confirming_kill_removes_selected_and_promotes_neighbor() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -243,6 +251,7 @@ fn pty_manager_kill_selected_updates_active_session() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -252,6 +261,7 @@ fn pty_manager_kill_selected_updates_active_session() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -286,6 +296,8 @@ fn applying_poll_snapshot_adds_and_updates_discovered_sessions() {
             time_updated: None,
             has_children: true,
             children: vec![],
+            serve_port: None,
+            source: DiscoverySource::Serve,
         }],
     });
 
@@ -312,6 +324,8 @@ fn applying_poll_snapshot_removes_stale_discovered_placeholders() {
             time_updated: None,
             has_children: false,
             children: vec![],
+            serve_port: None,
+            source: DiscoverySource::TuiExplicit,
         }],
     });
 
@@ -343,6 +357,8 @@ fn sidebar_entries_include_child_sessions() {
                 has_children: false,
                 children: vec![],
             }],
+            serve_port: None,
+            source: DiscoverySource::Serve,
         }],
     });
 
@@ -367,6 +383,7 @@ fn sidebar_entries_sort_top_level_sessions_by_recent_update_first() {
         None,
         None,
         None,
+        None,
         Some(100),
         false,
         vec![],
@@ -377,6 +394,7 @@ fn sidebar_entries_sort_top_level_sessions_by_recent_update_first() {
         SessionStatus::Idle,
         Some("sess_new".into()),
         SessionOrigin::Discovered,
+        None,
         None,
         None,
         None,
@@ -403,6 +421,7 @@ fn reap_exited_ptys_clears_dead_slot_keeps_entry() {
         SessionStatus::Working,
         None,
         SessionOrigin::Managed,
+        None,
         None,
         None,
         None,
@@ -472,6 +491,7 @@ fn find_by_process_pid_matches_serve_pid() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -496,6 +516,7 @@ fn apply_poll_snapshot_updates_via_serve_pid() {
         None,
         None,
         None,
+        None,
         false,
         vec![],
     );
@@ -512,6 +533,8 @@ fn apply_poll_snapshot_updates_via_serve_pid() {
             time_updated: None,
             has_children: false,
             children: vec![],
+            serve_port: None,
+            source: DiscoverySource::Serve,
         }],
     });
 
@@ -525,4 +548,219 @@ fn apply_poll_snapshot_updates_via_serve_pid() {
         "process_pid should remain the TUI PID"
     );
     assert_eq!(summary.serve_pid, Some(100));
+}
+
+#[test]
+fn manager_can_attach_arbitrary_session_reuses_existing() {
+    let mut manager = PtyManager::default();
+    
+    // First, Poller discovers an active session in the background and registers it
+    manager.apply_poll_snapshot(PollSnapshot {
+        sessions: vec![DiscoveredSessionInfo {
+            session_id: "sess_existing".into(),
+            cwd: PathBuf::from("/tmp/existing"),
+            title: "Existing".into(),
+            status: SessionStatus::Idle,
+            process_pid: None,
+            model: None,
+            preview: None,
+            time_updated: Some(100),
+            has_children: false,
+            children: vec![],
+            serve_port: Some(4000),
+            source: DiscoverySource::Serve,
+        }],
+    });
+    
+    assert_eq!(manager.len(), 1);
+    let summary_before = manager.sessions().items()[0].clone();
+    assert_eq!(summary_before.origin, SessionOrigin::Discovered);
+    
+    // User tries to attach to it via the Session Picker UI
+    manager
+        .attach_arbitrary_session(
+            "sess_existing".into(),
+            PathBuf::from("/tmp/existing"),
+            "Existing Attached".into(),
+            SessionStatus::Working,
+            Some(100),
+            24,
+            80,
+        )
+        .unwrap();
+
+    // The manager should REUSE the existing discovered entry, not create a second one.
+    assert_eq!(manager.len(), 1, "Should reuse existing session instead of duplicating");
+    
+    let summary_after = manager.selected_summary().unwrap();
+    assert_eq!(summary_after.session_id.as_deref(), Some("sess_existing"));
+    assert_eq!(summary_after.title, "Existing Attached", "Should update title");
+    assert_eq!(summary_after.status, SessionStatus::Working, "Should update status");
+    assert_eq!(summary_after.origin, SessionOrigin::Managed, "Should upgrade origin to Managed");
+    assert!(manager.active_session().is_some(), "Should attach PTY");
+}
+
+#[test]
+fn manager_apply_poll_snapshot_matches_unresolved_managed_session() {
+    let mut manager = PtyManager::default();
+
+    // Spawn managed session but serve daemon hasn't replied with an ID yet
+    let id = manager.register_placeholder(
+        PathBuf::from("/tmp/unresolved"),
+        "Unresolved".into(),
+        SessionStatus::Working,
+        None, // missing session_id
+        SessionOrigin::Managed,
+        Some(123),
+        Some(122), // serve_pid
+        Some(4001), // serve_port
+        None,
+        None,
+        Some(100),
+        false,
+        vec![],
+    );
+
+    // TUI loop scans process table first and guesses the session_id
+    manager.apply_poll_snapshot(PollSnapshot {
+        sessions: vec![DiscoveredSessionInfo {
+            session_id: "sess_guessed".into(),
+            cwd: PathBuf::from("/tmp/unresolved"),
+            title: "Guessed Title".into(),
+            status: SessionStatus::Idle,
+            process_pid: None, // Poller might not associate process pid correctly here
+            model: None,
+            preview: None,
+            time_updated: Some(101),
+            has_children: false,
+            children: vec![],
+            serve_port: None,
+            source: DiscoverySource::TuiHeuristic,
+        }],
+    });
+
+    // Should NOT duplicate, should update the unresolved Managed session
+    assert_eq!(manager.len(), 1, "Should not duplicate");
+    let summary = manager.sessions().items()[0].clone();
+    assert_eq!(summary.id, id);
+    assert_eq!(summary.session_id.as_deref(), Some("sess_guessed"), "Should adopt the guessed ID");
+    assert_eq!(summary.title, "Guessed Title");
+    assert_eq!(summary.status, SessionStatus::Idle);
+    assert_eq!(summary.origin, SessionOrigin::Managed, "Should stay managed");
+}
+
+#[test]
+fn serve_discovery_does_not_overwrite_managed_serve_port() {
+    let mut manager = PtyManager::default();
+
+    manager.register_placeholder(
+        PathBuf::from("/tmp/project-a"),
+        "project-a".into(),
+        SessionStatus::Idle,
+        Some("sess_managed".into()),
+        SessionOrigin::Managed,
+        Some(500),
+        Some(500),
+        Some(4223),
+        None,
+        None,
+        None,
+        false,
+        vec![],
+    );
+
+    manager.apply_poll_snapshot(PollSnapshot {
+        sessions: vec![DiscoveredSessionInfo {
+            session_id: "sess_managed".into(),
+            cwd: PathBuf::from("/tmp/project-a"),
+            title: "Updated Title".into(),
+            status: SessionStatus::Working,
+            process_pid: Some(500),
+            model: None,
+            preview: None,
+            time_updated: Some(101),
+            has_children: false,
+            children: vec![],
+            serve_port: Some(4220),
+            source: DiscoverySource::Serve,
+        }],
+    });
+
+    let summary = manager.selected_summary().unwrap();
+    assert_eq!(summary.serve_port, Some(4223));
+    assert_eq!(summary.title, "Updated Title");
+    assert_eq!(summary.status, SessionStatus::Working);
+}
+
+#[test]
+fn session_id_match_takes_priority_over_serve_port() {
+    let mut manager = PtyManager::default();
+
+    let entry_a = manager.register_placeholder(
+        PathBuf::from("/tmp/a"),
+        "a".into(),
+        SessionStatus::Idle,
+        Some("sess_a".into()),
+        SessionOrigin::Managed,
+        Some(200),
+        Some(200),
+        Some(4220),
+        None,
+        None,
+        None,
+        false,
+        vec![],
+    );
+    let entry_b = manager.register_placeholder(
+        PathBuf::from("/tmp/b"),
+        "b".into(),
+        SessionStatus::Idle,
+        Some("sess_b".into()),
+        SessionOrigin::Managed,
+        Some(500),
+        Some(500),
+        Some(4223),
+        None,
+        None,
+        None,
+        false,
+        vec![],
+    );
+
+    manager.apply_poll_snapshot(PollSnapshot {
+        sessions: vec![DiscoveredSessionInfo {
+            session_id: "sess_b".into(),
+            cwd: PathBuf::from("/tmp/b"),
+            title: "Entry B Updated".into(),
+            status: SessionStatus::Working,
+            process_pid: Some(500),
+            model: None,
+            preview: None,
+            time_updated: Some(201),
+            has_children: false,
+            children: vec![],
+            serve_port: Some(4220),
+            source: DiscoverySource::Serve,
+        }],
+    });
+
+    let items = manager.sessions().items();
+    let summary_a = items.iter().find(|s| s.id == entry_a).unwrap();
+    let summary_b = items.iter().find(|s| s.id == entry_b).unwrap();
+
+    assert_eq!(summary_b.title, "Entry B Updated");
+    assert_eq!(summary_b.status, SessionStatus::Working);
+    assert_eq!(summary_b.serve_port, Some(4223));
+
+    assert_eq!(summary_a.title, "a");
+    assert_eq!(summary_a.status, SessionStatus::Idle);
+    assert_eq!(summary_a.serve_port, Some(4220));
+}
+
+#[test]
+fn test_specific_session_status() {
+    let reader = ocmux_rs::data::db::reader::DbReader::open_default().unwrap();
+    let status = reader.get_session_status("ses_225490e46ffeDsv1XQ4g7jhPmq").unwrap();
+    println!("STATUS: {:?}", status);
+    // assert!(false); // to see output
 }

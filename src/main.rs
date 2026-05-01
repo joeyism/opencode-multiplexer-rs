@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     time::{Duration, Instant},
 };
@@ -14,10 +15,12 @@ use crossterm::{
 use opencode_multiplexer::{
     app::{
         Action, conversation::ConversationViewState, diff::DiffViewState, focus::AppFocus,
-        reducer::reduce, session_picker::SessionPickerState, state::AppState,
+        message_picker::MessagePickerState, reducer::reduce, session_picker::SessionPickerState,
+        sessions::SessionStatus, state::AppState,
     },
     config::load_config,
     data::{db::reader::DbReader, poller::start_poller},
+    notify::Notifier,
     ops::git::{diff_worktree, fetch_session_diff_from_serve},
     ops::worktree::create_worktree,
     ops::{fzf::pick_directory, opencode::display_title_for_cwd},
@@ -61,6 +64,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(), Box<dyn Error>> {
     let config = load_config().unwrap_or_default();
+    let mut notifier = Notifier::new(config.notifications);
     let _ = opencode_multiplexer::registry::cleanup_stale_serve_entries();
     let mut state = AppState::default();
     let mut manager = PtyManager::default();
@@ -75,7 +79,35 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
     let result = (|| -> Result<(), Box<dyn Error>> {
         loop {
             while let Ok(snapshot) = poll_rx.try_recv() {
-                manager.apply_poll_snapshot(snapshot);
+                // Capture old statuses keyed by session_id so we can diff them.
+                let prev_statuses: std::collections::HashMap<String, SessionStatus> = manager
+                    .sessions()
+                    .items()
+                    .iter()
+                    .filter_map(|s| Some((s.session_id.clone()?, s.status)))
+                    .collect();
+
+                manager.apply_poll_snapshot(snapshot.clone());
+
+                // Notify on interesting transitions when the app is not focused.
+                if config.notifications && !state.app_focused {
+                    for discovered in &snapshot.sessions {
+                        if let Some(&prev_status) = prev_statuses.get(&discovered.session_id) {
+                            if Notifier::is_interesting_transition(prev_status, discovered.status)
+                                && !notifier.is_on_cooldown(&discovered.session_id)
+                            {
+                                if let Some(summary) = manager.sessions().items().iter().find(|s| {
+                                    s.session_id.as_deref() == Some(&discovered.session_id)
+                                }) {
+                                    let title = format!("ocmux: {}", summary.title);
+                                    let body = Notifier::format_body(discovered.status);
+                                    notifier.notify(&title, body);
+                                    notifier.record_notification(&discovered.session_id);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             let active_before = manager.active_id();
@@ -132,6 +164,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
             if let Some(picker) = state.session_picker.as_mut() {
                 picker.tick();
             }
+            if let Some(picker) = state.message_picker.as_mut() {
+                picker.tick();
+            }
 
             terminal.draw(|frame| {
                 root::render(
@@ -151,6 +186,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     &conversation,
                     &diff_view,
                     state.session_picker.as_mut(),
+                    state.message_picker.as_mut(),
                     state.confirm_quit,
                 )
             })?;
@@ -160,6 +196,57 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
             }
 
             match event::read()? {
+                Event::Key(key) if state.message_picker.is_some() => match key.code {
+                    KeyCode::Esc => {
+                        state.message_picker = None;
+                        footer_message = Some("history canceled".into());
+                    }
+                    KeyCode::Enter => {
+                        let selected_text = state
+                            .message_picker
+                            .as_ref()
+                            .and_then(|p| p.selected_entry())
+                            .map(|entry| entry.text.clone());
+
+                        if let Some(text) = selected_text {
+                            state.message_picker = None;
+                            state.last_main_focus = AppFocus::Terminal;
+                            reduce(&mut state, Action::SetFocus(AppFocus::Terminal));
+
+                            if let Some(pty) = manager.active_session_mut() {
+                                match pty.send_paste(&text) {
+                                    Ok(_) => footer_message = None,
+                                    Err(error) => {
+                                        footer_message = Some(format!("paste failed: {error}"));
+                                    }
+                                }
+                            } else {
+                                footer_message = Some("no active session to paste into".into());
+                            }
+                        }
+                    }
+                    KeyCode::Up => {
+                        if let Some(picker) = state.message_picker.as_mut() {
+                            picker.move_up();
+                        }
+                    }
+                    KeyCode::Down => {
+                        if let Some(picker) = state.message_picker.as_mut() {
+                            picker.move_down();
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        if let Some(picker) = state.message_picker.as_mut() {
+                            picker.backspace();
+                        }
+                    }
+                    KeyCode::Char(c) => {
+                        if let Some(picker) = state.message_picker.as_mut() {
+                            picker.insert_char(c);
+                        }
+                    }
+                    _ => {}
+                },
                 Event::Key(key) if state.session_picker.is_some() => match key.code {
                     KeyCode::Esc => {
                         state.session_picker = None;
@@ -418,17 +505,39 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             }
                         }
                     }
-                    KeyCode::Char('/') => match SessionPickerState::load() {
-                        Ok(picker) if picker.total_count() > 0 => {
-                            state.session_picker = Some(picker);
+                    KeyCode::Char('/') => {
+                        let live_ids: HashSet<String> = manager
+                            .sidebar_entries()
+                            .iter()
+                            .filter_map(|e| e.session_id.clone())
+                            .collect();
+                        match SessionPickerState::load(live_ids) {
+                            Ok(picker) if picker.total_count() > 0 => {
+                                state.session_picker = Some(picker);
+                            }
+                            Ok(_) => {
+                                footer_message = Some("no sessions found".into());
+                            }
+                            Err(error) => {
+                                footer_message = Some(format!("search failed: {error}"));
+                            }
                         }
-                        Ok(_) => {
-                            footer_message = Some("no sessions found".into());
+                    }
+                    KeyCode::Char(c) if c == config.keybindings.history => {
+                        match MessagePickerState::load() {
+                            Ok(picker) if picker.total_count() > 0 => {
+                                state.message_picker = Some(picker);
+                                state.session_picker = None;
+                                footer_message = None;
+                            }
+                            Ok(_) => {
+                                footer_message = Some("no message history found".into());
+                            }
+                            Err(error) => {
+                                footer_message = Some(format!("history failed: {error}"));
+                            }
                         }
-                        Err(error) => {
-                            footer_message = Some(format!("search failed: {error}"));
-                        }
-                    },
+                    }
                     KeyCode::Char(c) if c == config.keybindings.kill => {
                         if let Some(row) = rows.get(state.selected_sidebar_row) {
                             match row.kind {

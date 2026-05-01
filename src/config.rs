@@ -10,6 +10,7 @@ use serde::Deserialize;
 pub struct AppConfig {
     pub sidebar_width: u16,
     pub keybindings: Keybindings,
+    pub notifications: bool,
 }
 
 impl Default for AppConfig {
@@ -17,6 +18,7 @@ impl Default for AppConfig {
         Self {
             sidebar_width: 30,
             keybindings: Keybindings::default(),
+            notifications: true,
         }
     }
 }
@@ -33,6 +35,7 @@ pub struct Keybindings {
     pub view: char,
     pub files: char,
     pub diff: char,
+    pub history: char,
 }
 
 impl Default for Keybindings {
@@ -48,6 +51,7 @@ impl Default for Keybindings {
             view: 'v',
             files: 'f',
             diff: 'd',
+            history: 'h',
         }
     }
 }
@@ -56,6 +60,7 @@ impl Default for Keybindings {
 struct PartialConfig {
     sidebar_width: Option<u16>,
     keybindings: Option<PartialKeybindings>,
+    notifications: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +75,7 @@ struct PartialKeybindings {
     view: Option<String>,
     files: Option<String>,
     diff: Option<String>,
+    history: Option<String>,
 }
 
 pub fn load_config() -> anyhow::Result<AppConfig> {
@@ -101,6 +107,10 @@ pub fn load_config_from_path(path: &Path) -> anyhow::Result<AppConfig> {
         apply_keybinding(&mut config.keybindings.view, bindings.view);
         apply_keybinding(&mut config.keybindings.files, bindings.files);
         apply_keybinding(&mut config.keybindings.diff, bindings.diff);
+        apply_keybinding(&mut config.keybindings.history, bindings.history);
+    }
+    if let Some(notifications) = partial.notifications {
+        config.notifications = notifications;
     }
 
     Ok(config)

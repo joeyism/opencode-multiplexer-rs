@@ -27,6 +27,11 @@ pub fn scan_serve_processes() -> anyhow::Result<Vec<ParsedServeProcess>> {
         .collect())
 }
 
+fn is_opencode_binary(token: &str) -> bool {
+    let basename = token.rsplit('/').next().unwrap_or(token);
+    basename == "opencode" || basename == ".opencode"
+}
+
 pub fn parse_serve_process_line(line: &str) -> Option<ParsedServeProcess> {
     let mut parts = line.split_whitespace();
     let pid: u32 = parts.next()?.parse().ok()?;
@@ -35,12 +40,10 @@ pub fn parse_serve_process_line(line: &str) -> Option<ParsedServeProcess> {
         return None;
     }
 
-    let opencode_index = if tokens[0] == "opencode" {
+    let opencode_index = if is_opencode_binary(tokens[0]) {
         Some(0)
     } else if matches!(tokens[0], "node" | "bun" | "deno")
-        && tokens
-            .get(1)
-            .is_some_and(|token| token.ends_with("/opencode") || *token == "opencode")
+        && tokens.get(1).is_some_and(|token| is_opencode_binary(token))
     {
         Some(1)
     } else {
@@ -69,12 +72,10 @@ pub fn parse_process_line(line: &str) -> Option<ParsedProcess> {
         return None;
     }
 
-    let opencode_index = if tokens[0] == "opencode" {
+    let opencode_index = if is_opencode_binary(tokens[0]) {
         Some(0)
     } else if matches!(tokens[0], "node" | "bun" | "deno")
-        && tokens
-            .get(1)
-            .is_some_and(|token| token.ends_with("/opencode") || *token == "opencode")
+        && tokens.get(1).is_some_and(|token| is_opencode_binary(token))
     {
         Some(1)
     } else {
