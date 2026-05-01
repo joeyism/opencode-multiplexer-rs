@@ -108,7 +108,9 @@ pub fn start_poller(poll_tx: Sender<PollSnapshot>) -> PollerHandle {
                         full
                     }
                     Err(_) => {
-                        thread::sleep(Duration::from_secs(1));
+                        if stop_rx.recv_timeout(Duration::from_secs(1)).is_ok() {
+                            break;
+                        }
                         continue;
                     }
                 }
@@ -116,14 +118,18 @@ pub fn start_poller(poll_tx: Sender<PollSnapshot>) -> PollerHandle {
                 match poll_fast() {
                     Ok(fast) => merge_cached_serve_sessions(fast, &cached_serve),
                     Err(_) => {
-                        thread::sleep(Duration::from_secs(1));
+                        if stop_rx.recv_timeout(Duration::from_secs(1)).is_ok() {
+                            break;
+                        }
                         continue;
                     }
                 }
             };
 
             let _ = poll_tx.send(snapshot);
-            thread::sleep(Duration::from_secs(1));
+            if stop_rx.recv_timeout(Duration::from_secs(1)).is_ok() {
+                break;
+            }
         }
     });
 
