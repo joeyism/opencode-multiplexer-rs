@@ -193,11 +193,11 @@ fn toggle_sidebar_collapse_action_flips_sidebar_state() {
 #[test]
 fn toggle_panel_hidden_action_flips_panel_state_and_focus() {
     let mut state = AppState::default();
-    
+
     reduce(&mut state, Action::TogglePanelHidden);
     assert!(state.panel_hidden);
     assert_eq!(state.focus, AppFocus::Terminal);
-    
+
     reduce(&mut state, Action::TogglePanelHidden);
     assert!(!state.panel_hidden);
     assert_eq!(state.focus, AppFocus::Sidebar);

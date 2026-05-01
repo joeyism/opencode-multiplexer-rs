@@ -95,9 +95,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         if let Some(&prev_status) = prev_statuses.get(&discovered.session_id)
                             && Notifier::is_interesting_transition(prev_status, discovered.status)
                             && !notifier.is_on_cooldown(&discovered.session_id)
-                            && let Some(summary) = manager.sessions().items().iter().find(|s| {
-                                s.session_id.as_deref() == Some(&discovered.session_id)
-                            })
+                            && let Some(summary) =
+                                manager.sessions().items().iter().find(|s| {
+                                    s.session_id.as_deref() == Some(&discovered.session_id)
+                                })
                         {
                             let title = format!("ocmux: {}", summary.title);
                             let body = Notifier::format_body(discovered.status);
@@ -340,7 +341,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     if is_panel_toggle(key)
                         && matches!(
                             state.focus,
-                            AppFocus::Terminal | AppFocus::Sidebar | AppFocus::Diff | AppFocus::Conversation
+                            AppFocus::Terminal
+                                | AppFocus::Sidebar
+                                | AppFocus::Diff
+                                | AppFocus::Conversation
                         ) =>
                 {
                     reduce(&mut state, Action::TogglePanelHidden);
@@ -358,8 +362,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     }
 
                     if diff_view.is_active() {
-                        let new_content_width = terminal.size()?.width.saturating_sub(new_sidebar_width);
-                        let new_vp = terminal.size()?.height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
+                        let new_content_width =
+                            terminal.size()?.width.saturating_sub(new_sidebar_width);
+                        let new_vp =
+                            terminal.size()?.height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
                         let (doc, meta) =
                             ui_diff::build_diff_document(diff_view.raw_diff(), new_content_width);
                         diff_view.replace_document(doc, meta, new_vp);
@@ -665,7 +671,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     }
                     KeyCode::Char('s') => {
                         reduce(&mut state, Action::ToggleSidebarCollapse);
-                        
+
                         let new_sidebar_width = if state.panel_hidden {
                             0
                         } else if state.sidebar_collapsed {
@@ -673,12 +679,16 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         } else {
                             config.sidebar_width
                         };
-                        
+
                         if diff_view.is_active() {
-                            let new_content_width = terminal.size()?.width.saturating_sub(new_sidebar_width);
-                            let new_vp = terminal.size()?.height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
-                            let (doc, meta) =
-                                ui_diff::build_diff_document(diff_view.raw_diff(), new_content_width);
+                            let new_content_width =
+                                terminal.size()?.width.saturating_sub(new_sidebar_width);
+                            let new_vp =
+                                terminal.size()?.height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
+                            let (doc, meta) = ui_diff::build_diff_document(
+                                diff_view.raw_diff(),
+                                new_content_width,
+                            );
                             diff_view.replace_document(doc, meta, new_vp);
                         }
                     }
