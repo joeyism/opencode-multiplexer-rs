@@ -88,15 +88,41 @@ impl PollerHandle {
 pub fn start_poller(poll_tx: Sender<PollSnapshot>) -> PollerHandle {
     let (stop_tx, stop_rx) = mpsc::channel();
     let join_handle = thread::spawn(move || {
+        let mut last_full_poll: Option<std::time::Instant> = None;
+        let mut cached_serve: Vec<DiscoveredSessionInfo> = Vec::new();
+
         loop {
             if stop_rx.try_recv().is_ok() {
                 break;
             }
 
-            if let Ok(snapshot) = poll_once() {
-                let _ = poll_tx.send(snapshot);
-            }
+            let due_full = last_full_poll
+                .map(|t| t.elapsed() >= Duration::from_secs(30))
+                .unwrap_or(true);
 
+            let snapshot = if due_full {
+                match poll_full() {
+                    Ok(full) => {
+                        cached_serve = extract_serve_only_sessions(&full);
+                        last_full_poll = Some(std::time::Instant::now());
+                        full
+                    }
+                    Err(_) => {
+                        thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                }
+            } else {
+                match poll_fast() {
+                    Ok(fast) => merge_cached_serve_sessions(fast, &cached_serve),
+                    Err(_) => {
+                        thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                }
+            };
+
+            let _ = poll_tx.send(snapshot);
             thread::sleep(Duration::from_secs(1));
         }
     });
@@ -107,11 +133,10 @@ pub fn start_poller(poll_tx: Sender<PollSnapshot>) -> PollerHandle {
     }
 }
 
-pub fn poll_once() -> anyhow::Result<PollSnapshot> {
+pub fn poll_fast() -> anyhow::Result<PollSnapshot> {
     let reader = DbReader::open_default()?;
     let projects = reader.get_projects()?;
     let processes = scan_processes()?;
-    let serve_processes = scan_serve_processes().unwrap_or_default();
     let managed_sessions = load_managed_sessions().unwrap_or_default();
     let mut sessions = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -121,6 +146,95 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
         .into_iter()
         .filter_map(|e| e.tui_pid)
         .collect();
+
+    // TUI processes (explicit -s flag + heuristic guessing)
+    for process in processes {
+        if process.session_id.is_none() && managed_tui_pids.contains(&process.pid) {
+            continue;
+        }
+        let Some(cwd) = cwd_for_pid(process.pid)? else {
+            continue;
+        };
+        let Some(project) = find_best_project(&cwd, &projects) else {
+            continue;
+        };
+
+        let (session_id, source) = if let Some(sid) = process.session_id.as_deref() {
+            (sid.to_string(), DiscoverySource::TuiExplicit)
+        } else {
+            let offset = offsets.entry(project.id.clone()).or_insert(0);
+            let session = reader.get_most_recent_session(&project.id, *offset)?;
+            *offset += 1;
+            match session {
+                Some(s) => (s.id, DiscoverySource::TuiHeuristic),
+                None => continue,
+            }
+        };
+
+        if !seen.insert(session_id.clone()) {
+            continue;
+        }
+
+        let title_fallback = project
+            .worktree
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string());
+        if let Some(info) = hydrate_session(
+            &reader,
+            &session_id,
+            Some(process.pid),
+            None,
+            source,
+            Some(cwd.clone()),
+            title_fallback,
+        )? {
+            sessions.push(info);
+        }
+    }
+
+    // Managed sessions (even without active TUI)
+    for managed_id in managed_sessions {
+        if !seen.insert(managed_id.clone()) {
+            continue;
+        }
+        let Some(proj) = projects
+            .iter()
+            .find(|project| {
+                reader
+                    .get_session_by_id(&managed_id)
+                    .ok()
+                    .flatten()
+                    .map_or(false, |s| s.project_id == project.id)
+            })
+            .cloned()
+        else {
+            continue;
+        };
+        if let Some(info) = hydrate_session(
+            &reader,
+            &managed_id,
+            None,
+            None,
+            DiscoverySource::TuiExplicit,
+            Some(proj.worktree.clone()),
+            None,
+        )? {
+            sessions.push(info);
+        }
+    }
+
+    Ok(PollSnapshot { sessions })
+}
+
+pub fn poll_full() -> anyhow::Result<PollSnapshot> {
+    let mut snapshot = poll_fast()?;
+    let mut seen: std::collections::HashSet<String> =
+        snapshot.sessions.iter().map(|s| s.session_id.clone()).collect();
+
+    let reader = DbReader::open_default()?;
+    let projects = reader.get_projects()?;
+    let managed_sessions = load_managed_sessions().unwrap_or_default();
+    let serve_processes = scan_serve_processes().unwrap_or_default();
 
     let serve_sessions_by_port: HashMap<u16, Vec<String>> = std::thread::scope(|s| {
         let mut handles = Vec::new();
@@ -169,12 +283,12 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
                 {
                     proj.worktree.clone()
                 } else {
-                    continue; // Skip if no valid directory or project worktree exists
+                    continue;
                 }
             } else {
                 session.directory.clone()
             };
-            sessions.push(DiscoveredSessionInfo {
+            snapshot.sessions.push(DiscoveredSessionInfo {
                 session_id: serve_session_id.clone(),
                 cwd,
                 title: session.title.clone(),
@@ -193,104 +307,35 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
         }
     }
 
-    for process in processes {
-        if process.session_id.is_none() && managed_tui_pids.contains(&process.pid) {
-            continue;
+    Ok(snapshot)
+}
+
+/// Backwards-compatible alias — polls fast path + serve discovery.
+pub fn poll_once() -> anyhow::Result<PollSnapshot> {
+    poll_full()
+}
+
+fn extract_serve_only_sessions(snapshot: &PollSnapshot) -> Vec<DiscoveredSessionInfo> {
+    snapshot
+        .sessions
+        .iter()
+        .filter(|s| matches!(s.source, DiscoverySource::Serve))
+        .cloned()
+        .collect()
+}
+
+fn merge_cached_serve_sessions(
+    mut fast: PollSnapshot,
+    cached: &[DiscoveredSessionInfo],
+) -> PollSnapshot {
+    let fast_ids: std::collections::HashSet<String> =
+        fast.sessions.iter().map(|s| s.session_id.clone()).collect();
+    for entry in cached {
+        if !fast_ids.contains(&entry.session_id) {
+            fast.sessions.push(entry.clone());
         }
-        let Some(cwd) = cwd_for_pid(process.pid)? else {
-            continue;
-        };
-        let Some(project) = find_best_project(&cwd, &projects) else {
-            continue;
-        };
-
-        let (session, source) = if let Some(session_id) = process.session_id.as_deref() {
-            (
-                reader.get_session_by_id(session_id)?,
-                DiscoverySource::TuiExplicit,
-            )
-        } else {
-            let offset = offsets.entry(project.id.clone()).or_insert(0);
-            let session = reader.get_most_recent_session(&project.id, *offset)?;
-            *offset += 1;
-            (session, DiscoverySource::TuiHeuristic)
-        };
-
-        let Some(session) = session else {
-            continue;
-        };
-        if !seen.insert(session.id.clone()) {
-            continue;
-        }
-
-        sessions.push(DiscoveredSessionInfo {
-            session_id: session.id.clone(),
-            cwd: if session.directory.as_os_str().is_empty() {
-                cwd.clone()
-            } else {
-                session.directory.clone()
-            },
-            title: if session.title.is_empty() {
-                project
-                    .worktree
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_else(|| cwd.display().to_string())
-            } else {
-                session.title.clone()
-            },
-            status: reader.get_session_status(&session.id)?,
-            process_pid: Some(process.pid),
-            model: reader.get_session_model(&session.id)?,
-            preview: reader
-                .get_last_message_preview(&session.id)?
-                .map(|preview| preview.text),
-            time_updated: Some(session.time_updated),
-            has_children: reader.has_child_sessions(&session.id)?,
-            children: collect_children(&reader, &session.id, 2)?,
-            serve_port: None,
-            source,
-        });
     }
-
-    for managed_id in managed_sessions {
-        if !seen.insert(managed_id.clone()) {
-            continue;
-        }
-        let Some(session) = reader.get_session_by_id(&managed_id)? else {
-            continue;
-        };
-        let cwd = if session.directory.as_os_str().is_empty() {
-            if let Some(proj) = projects
-                .iter()
-                .find(|project| project.id == session.project_id)
-            {
-                proj.worktree.clone()
-            } else {
-                continue;
-            }
-        } else {
-            session.directory.clone()
-        };
-        sessions.push(DiscoveredSessionInfo {
-            session_id: managed_id.clone(),
-            cwd,
-            title: session.title.clone(),
-            status: reader.get_session_status(&managed_id)?,
-            process_pid: None,
-            model: reader.get_session_model(&managed_id)?,
-            preview: reader
-                .get_last_message_preview(&managed_id)?
-                .map(|preview| preview.text),
-            time_updated: Some(session.time_updated),
-            has_children: reader.has_child_sessions(&managed_id)?,
-            children: collect_children(&reader, &managed_id, 2)?,
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        });
-    }
-
-    Ok(PollSnapshot { sessions })
+    fast
 }
 
 fn collect_children(
@@ -370,30 +415,45 @@ fn chrono_like_epoch(value: &str) -> Option<u64> {
 }
 
 /// Hydrate a single session from the DB into a `DiscoveredSessionInfo`.
-/// Returns `Ok(None)` if the session doesn't exist or has no directory.
-#[cfg(test)]
+/// Returns `Ok(None)` if the session doesn't exist.
+/// If the session's directory is empty, uses `cwd_fallback` if provided.
+/// If the session's title is empty, uses `title_fallback` if provided.
 fn hydrate_session(
     reader: &DbReader,
     session_id: &str,
     process_pid: Option<u32>,
     serve_port: Option<u16>,
     source: DiscoverySource,
+    cwd_fallback: Option<PathBuf>,
+    title_fallback: Option<String>,
 ) -> anyhow::Result<Option<DiscoveredSessionInfo>> {
     let Some(session) = reader.get_session_by_id(session_id)? else {
         return Ok(None);
     };
-    if session.directory.as_os_str().is_empty() {
-        return Ok(None);
-    }
+    let cwd = if session.directory.as_os_str().is_empty() {
+        match cwd_fallback {
+            Some(fallback) => fallback,
+            None => return Ok(None),
+        }
+    } else {
+        session.directory.clone()
+    };
+    let title = if session.title.is_empty() {
+        title_fallback.unwrap_or_else(|| cwd.display().to_string())
+    } else {
+        session.title.clone()
+    };
     let status = reader.get_session_status(session_id)?;
     Ok(Some(DiscoveredSessionInfo {
         session_id: session_id.to_string(),
-        cwd: session.directory.clone(),
-        title: session.title.clone(),
+        cwd,
+        title,
         status,
         process_pid,
         model: reader.get_session_model(session_id)?,
-        preview: reader.get_last_message_preview(session_id)?.map(|p| p.text),
+        preview: reader
+            .get_last_message_preview(session_id)?
+            .map(|p| p.text),
         time_updated: Some(session.time_updated),
         has_children: reader.has_child_sessions(session_id)?,
         children: collect_children(reader, session_id, 2)?,
@@ -486,6 +546,8 @@ mod tests {
             Some(123),
             Some(4200),
             DiscoverySource::Serve,
+            None,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -504,7 +566,7 @@ mod tests {
         let _conn = init_db(&db_path);
         let reader = DbReader::open(&db_path).unwrap();
         let result =
-            hydrate_session(&reader, "nonexistent", None, None, DiscoverySource::Serve).unwrap();
+            hydrate_session(&reader, "nonexistent", None, None, DiscoverySource::Serve, None, None).unwrap();
         assert!(result.is_none());
     }
 
@@ -524,7 +586,121 @@ mod tests {
         .unwrap();
 
         let reader = DbReader::open(&db_path).unwrap();
-        let result = hydrate_session(&reader, "sess1", None, None, DiscoverySource::Serve).unwrap();
+        let result = hydrate_session(&reader, "sess1", None, None, DiscoverySource::Serve, None, None).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn merge_cached_serve_sessions_adds_serve_only_entries() {
+        let fast = PollSnapshot {
+            sessions: vec![
+                DiscoveredSessionInfo {
+                    session_id: "sess_a".into(),
+                    cwd: PathBuf::from("/tmp/a"),
+                    title: "A".into(),
+                    status: SessionStatus::Working,
+                    process_pid: Some(100),
+                    model: None,
+                    preview: None,
+                    time_updated: None,
+                    has_children: false,
+                    children: vec![],
+                    serve_port: None,
+                    source: DiscoverySource::TuiExplicit,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_b".into(),
+                    cwd: PathBuf::from("/tmp/b"),
+                    title: "B".into(),
+                    status: SessionStatus::Idle,
+                    process_pid: None,
+                    model: None,
+                    preview: None,
+                    time_updated: None,
+                    has_children: false,
+                    children: vec![],
+                    serve_port: None,
+                    source: DiscoverySource::TuiExplicit,
+                },
+            ],
+        };
+        let cached = vec![
+            DiscoveredSessionInfo {
+                session_id: "sess_b".into(),
+                cwd: PathBuf::from("/tmp/b"),
+                title: "B Old".into(),
+                status: SessionStatus::Idle,
+                process_pid: Some(200),
+                model: None,
+                preview: None,
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4200),
+                source: DiscoverySource::Serve,
+            },
+            DiscoveredSessionInfo {
+                session_id: "sess_c".into(),
+                cwd: PathBuf::from("/tmp/c"),
+                title: "C".into(),
+                status: SessionStatus::NeedsInput,
+                process_pid: Some(300),
+                model: None,
+                preview: None,
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4201),
+                source: DiscoverySource::Serve,
+            },
+        ];
+        let merged = merge_cached_serve_sessions(fast, &cached);
+        assert_eq!(merged.sessions.len(), 3);
+        // Fast B should win over cached B
+        let b = merged.sessions.iter().find(|s| s.session_id == "sess_b").unwrap();
+        assert_eq!(b.title, "B");
+        assert_eq!(b.source, DiscoverySource::TuiExplicit);
+        // C should be added from cache
+        let c = merged.sessions.iter().find(|s| s.session_id == "sess_c").unwrap();
+        assert_eq!(c.title, "C");
+        assert_eq!(c.source, DiscoverySource::Serve);
+    }
+
+    #[test]
+    fn merge_cached_serve_sessions_does_not_duplicate_when_fast_covers_all() {
+        let fast = PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_a".into(),
+                cwd: PathBuf::from("/tmp/a"),
+                title: "A".into(),
+                status: SessionStatus::Working,
+                process_pid: None,
+                model: None,
+                preview: None,
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
+            }],
+        };
+        let cached = vec![DiscoveredSessionInfo {
+            session_id: "sess_a".into(),
+            cwd: PathBuf::from("/tmp/a"),
+            title: "A Old".into(),
+            status: SessionStatus::Idle,
+            process_pid: Some(100),
+            model: None,
+            preview: None,
+            time_updated: None,
+            has_children: false,
+            children: vec![],
+            serve_port: Some(4200),
+            source: DiscoverySource::Serve,
+        }];
+        let merged = merge_cached_serve_sessions(fast, &cached);
+        assert_eq!(merged.sessions.len(), 1);
+        assert_eq!(merged.sessions[0].title, "A");
+        assert_eq!(merged.sessions[0].source, DiscoverySource::TuiExplicit);
     }
 }
