@@ -92,19 +92,17 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 // Notify on interesting transitions when the app is not focused.
                 if config.notifications && !state.app_focused {
                     for discovered in &snapshot.sessions {
-                        if let Some(&prev_status) = prev_statuses.get(&discovered.session_id) {
-                            if Notifier::is_interesting_transition(prev_status, discovered.status)
-                                && !notifier.is_on_cooldown(&discovered.session_id)
-                            {
-                                if let Some(summary) = manager.sessions().items().iter().find(|s| {
-                                    s.session_id.as_deref() == Some(&discovered.session_id)
-                                }) {
-                                    let title = format!("ocmux: {}", summary.title);
-                                    let body = Notifier::format_body(discovered.status);
-                                    notifier.notify(&title, body);
-                                    notifier.record_notification(&discovered.session_id);
-                                }
-                            }
+                        if let Some(&prev_status) = prev_statuses.get(&discovered.session_id)
+                            && Notifier::is_interesting_transition(prev_status, discovered.status)
+                            && !notifier.is_on_cooldown(&discovered.session_id)
+                            && let Some(summary) = manager.sessions().items().iter().find(|s| {
+                                s.session_id.as_deref() == Some(&discovered.session_id)
+                            })
+                        {
+                            let title = format!("ocmux: {}", summary.title);
+                            let body = Notifier::format_body(discovered.status);
+                            notifier.notify(&title, body);
+                            notifier.record_notification(&discovered.session_id);
                         }
                     }
                 }
@@ -340,7 +338,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 },
                 Event::Key(key)
                     if is_panel_toggle(key)
-                        && matches!(state.focus, AppFocus::Terminal | AppFocus::Sidebar) =>
+                        && matches!(
+                            state.focus,
+                            AppFocus::Terminal | AppFocus::Sidebar | AppFocus::Diff | AppFocus::Conversation
+                        ) =>
                 {
                     reduce(&mut state, Action::TogglePanelHidden);
                     let new_sidebar_width = if state.panel_hidden {
@@ -354,6 +355,18 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                         pane_size(terminal.size()?.into(), new_sidebar_width);
                     if let Err(error) = manager.resize_active(pty_rows, pty_cols) {
                         footer_message = Some(format!("resize failed: {error}"));
+                    }
+
+                    if diff_view.is_active() {
+                        let new_content_width = terminal.size()?.width.saturating_sub(new_sidebar_width);
+                        let new_vp = terminal.size()?.height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
+                        let (doc, meta) =
+                            ui_diff::build_diff_document(diff_view.raw_diff(), new_content_width);
+                        diff_view.replace_document(doc, meta, new_vp);
+                    }
+
+                    if matches!(state.focus, AppFocus::Conversation) {
+                        conversation.force_poll();
                     }
                 }
                 Event::Key(key) if is_focus_toggle(key) => {
@@ -652,6 +665,22 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     }
                     KeyCode::Char('s') => {
                         reduce(&mut state, Action::ToggleSidebarCollapse);
+                        
+                        let new_sidebar_width = if state.panel_hidden {
+                            0
+                        } else if state.sidebar_collapsed {
+                            COLLAPSED_SIDEBAR_WIDTH
+                        } else {
+                            config.sidebar_width
+                        };
+                        
+                        if diff_view.is_active() {
+                            let new_content_width = terminal.size()?.width.saturating_sub(new_sidebar_width);
+                            let new_vp = terminal.size()?.height.saturating_sub(FOOTER_HEIGHT + 1) as usize;
+                            let (doc, meta) =
+                                ui_diff::build_diff_document(diff_view.raw_diff(), new_content_width);
+                            diff_view.replace_document(doc, meta, new_vp);
+                        }
                     }
                     KeyCode::Char(c) if c == config.keybindings.worktree => {
                         match pick_directory_with_terminal(terminal) {
@@ -1038,7 +1067,7 @@ fn prompt_text_with_terminal(
 
     use std::io::Write;
     print!("\x1b[2J\x1b[H");
-    print!("{} ", prompt);
+    print!("{prompt} ");
     std::io::stdout().flush()?;
 
     let mut input = String::new();
@@ -1097,7 +1126,7 @@ fn commit_session_files(
     if !created.is_empty() {
         println!("\x1b[32mCreated:\x1b[0m"); // Green
         for f in &created {
-            println!("\x1b[32m  {}\x1b[0m", f);
+            println!("\x1b[32m  {f}\x1b[0m");
         }
         println!();
     }
@@ -1105,7 +1134,7 @@ fn commit_session_files(
     if !modified.is_empty() {
         println!("\x1b[33mModified:\x1b[0m"); // Yellow
         for f in &modified {
-            println!("\x1b[33m  {}\x1b[0m", f);
+            println!("\x1b[33m  {f}\x1b[0m");
         }
         println!();
     }
@@ -1113,7 +1142,7 @@ fn commit_session_files(
     if !deleted.is_empty() {
         println!("\x1b[31mDeleted:\x1b[0m"); // Red
         for f in &deleted {
-            println!("\x1b[31m  {}\x1b[0m", f);
+            println!("\x1b[31m  {f}\x1b[0m");
         }
         println!();
     }
@@ -1137,7 +1166,7 @@ fn commit_session_files(
         let output = opencode_multiplexer::ops::git::commit_and_push_files(
             cwd, &created, &modified, &deleted, &message,
         )?;
-        println!("\n{}", output);
+        println!("\n{output}");
         println!("Press Enter to continue...");
         let _ = std::io::stdin().read_line(&mut String::new());
         Some(format!("committed {} files", files.len()))

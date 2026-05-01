@@ -586,7 +586,7 @@ fn render_side_cell(
 fn truncate_pad(text: &str, width: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= width {
-        format!("{:<width$}", text, width = width)
+        format!("{text:<width$}")
     } else if width == 0 {
         String::new()
     } else {
@@ -597,7 +597,7 @@ fn truncate_pad(text: &str, width: usize) -> String {
 fn truncate_exact(text: &str, width: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= width {
-        format!("{:<width$}", text, width = width)
+        format!("{text:<width$}")
     } else {
         chars[..width].iter().collect()
     }

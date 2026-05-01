@@ -52,7 +52,7 @@ pub fn wait_for_serve_ready(port: u16, timeout_secs: u64) -> bool {
         if let Ok(resp) = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_millis(500))
             .build()
-            .and_then(|c| c.get(format!("http://localhost:{}/session", port)).send())
+            .and_then(|c| c.get(format!("http://localhost:{port}/session")).send())
             && resp.status().is_success()
         {
             return true;
@@ -66,7 +66,7 @@ pub fn fetch_serve_session_ids(port: u16) -> anyhow::Result<std::collections::Ha
     let resp = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()?
-        .get(format!("http://localhost:{}/session", port))
+        .get(format!("http://localhost:{port}/session"))
         .send()?;
     if !resp.status().is_success() {
         return Ok(std::collections::HashSet::new());

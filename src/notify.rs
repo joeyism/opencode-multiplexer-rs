@@ -58,18 +58,16 @@ impl Notifier {
             .timeout(notify_rust::Timeout::Milliseconds(8000))
             .show();
 
-        if native.is_ok() {
-            return;
-        }
-
-        // Shell fallback – Linux only. We intentionally do NOT use osascript
-        // on macOS because it bypasses Do Not Disturb.
-        #[cfg(target_os = "linux")]
-        {
-            let _ = std::process::Command::new("notify-send")
-                .arg(title)
-                .arg(body)
-                .spawn();
+        if native.is_err() {
+            // Shell fallback – Linux only. We intentionally do NOT use osascript
+            // on macOS because it bypasses Do Not Disturb.
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::process::Command::new("notify-send")
+                    .arg(title)
+                    .arg(body)
+                    .spawn();
+            }
         }
     }
 

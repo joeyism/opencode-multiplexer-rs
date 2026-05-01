@@ -152,6 +152,13 @@ impl ConversationViewState {
         self.follow_tail = true;
     }
 
+    /// Force the next poll to refresh even if within the poll interval.
+    /// Useful after viewport changes (e.g., sidebar resize) to ensure the
+    /// document is rebuilt with the new content width.
+    pub fn force_poll(&mut self) {
+        self.last_poll = None;
+    }
+
     pub fn clamp_scroll(&mut self, viewport_height: usize) {
         let max_scroll = self.document.len().saturating_sub(viewport_height);
         if self.scroll > max_scroll {

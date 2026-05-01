@@ -15,7 +15,7 @@ fn temp_repo_dir(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("ocmux-rs-repo-{}-{}", label, nanos))
+    std::env::temp_dir().join(format!("ocmux-rs-repo-{label}-{nanos}"))
 }
 
 fn git_init(dir: &PathBuf) {

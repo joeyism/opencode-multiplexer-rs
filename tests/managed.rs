@@ -786,6 +786,6 @@ fn test_specific_session_status() {
     let status = reader
         .get_session_status("ses_225490e46ffeDsv1XQ4g7jhPmq")
         .unwrap();
-    println!("STATUS: {:?}", status);
+    println!("STATUS: {status:?}");
     // assert!(false); // to see output
 }

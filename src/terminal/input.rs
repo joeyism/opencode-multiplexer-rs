@@ -79,7 +79,7 @@ fn modified_arrow(arrow: u8, mods: KeyModifiers) -> Option<Vec<u8>> {
 fn modified_special(code: &[u8], mods: KeyModifiers) -> Option<Vec<u8>> {
     match modifier_param(mods) {
         Some(m) => {
-            let mut seq = format!("\x1b[1;{}", m).into_bytes();
+            let mut seq = format!("\x1b[1;{m}").into_bytes();
             seq.extend_from_slice(code);
             Some(seq)
         }
@@ -96,7 +96,7 @@ fn modified_key(num: &[u8], mods: KeyModifiers) -> Option<Vec<u8>> {
         Some(m) => {
             let mut seq = vec![0x1b, b'['];
             seq.extend_from_slice(num);
-            seq.extend(format!(";{}~", m).as_bytes());
+            seq.extend(format!(";{m}~").as_bytes());
             Some(seq)
         }
         None => {

@@ -251,7 +251,7 @@ pub fn commit_and_push_files(
         ("commit", &commit_out),
         ("push", &push_out),
     ] {
-        output.push_str(&format!("--- git {} ---\n", label));
+        output.push_str(&format!("--- git {label} ---\n"));
         output.push_str(&String::from_utf8_lossy(&out.stdout));
         output.push_str(&String::from_utf8_lossy(&out.stderr));
         output.push('\n');

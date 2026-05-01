@@ -194,10 +194,10 @@ pub fn display_session_label(cwd: &Path, title: &str, collapsed: bool) -> String
     if collapsed {
         let repo_tag: String = repo.chars().take(2).collect();
         let prefix: String = title.chars().take(5).collect();
-        return format!("{}·{}…", repo_tag, prefix);
+        return format!("{repo_tag}·{prefix}…");
     }
     let repo_prefix: String = repo.chars().take(3).collect();
-    format!("{}/{} ", repo_prefix, title)
+    format!("{repo_prefix}/{title} ")
 }
 
 pub fn relative_time_label(age_secs: u64) -> String {
@@ -237,7 +237,7 @@ pub fn format_sidebar_text(
         active,
         is_child,
     );
-    format!("{}{}", left, right)
+    format!("{left}{right}")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -288,7 +288,7 @@ fn format_sidebar_parts(
     } else {
         "  "
     };
-    let prefix = format!("{}{}{}", indent, active_prefix, marker);
+    let prefix = format!("{indent}{active_prefix}{marker}");
     let content_width = sidebar_width.saturating_sub(3); // 2 dot span + 1 border
     let left_width = content_width.saturating_sub(time_text.chars().count() as u16) as usize;
     let left = format!(
@@ -296,7 +296,7 @@ fn format_sidebar_parts(
         prefix,
         truncate_label(&label, left_width.saturating_sub(prefix.chars().count()))
     );
-    let padded_left = format!("{:<width$}", left, width = left_width);
+    let padded_left = format!("{left:<left_width$}");
     (padded_left, time_text)
 }
 
@@ -350,7 +350,7 @@ fn truncate_label(label: &str, max_len: usize) -> String {
     }
     let chars = label.chars().collect::<Vec<_>>();
     if chars.len() <= max_len {
-        return format!("{:<width$}", label, width = max_len);
+        return format!("{label:<max_len$}");
     }
     if max_len <= 1 {
         return String::from("…");
@@ -406,6 +406,6 @@ fn render_row(
     Line::from(vec![
         Span::styled(format!("{symbol} "), Style::default().fg(color)),
         Span::styled(left, row_style),
-        Span::styled(format!(" {}", right), row_style),
+        Span::styled(format!(" {right}"), row_style),
     ])
 }

@@ -12,10 +12,10 @@ pub fn pick_directory() -> anyhow::Result<Option<PathBuf>> {
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let search_paths: Vec<PathBuf> = [
-        format!("{}/Programming", home),
-        format!("{}/repos", home),
-        format!("{}/projects", home),
-        format!("{}/code", home),
+        format!("{home}/Programming"),
+        format!("{home}/repos"),
+        format!("{home}/projects"),
+        format!("{home}/code"),
     ]
     .into_iter()
     .map(PathBuf::from)
@@ -64,7 +64,7 @@ pub fn pick_directory() -> anyhow::Result<Option<PathBuf>> {
     if let Some(mut stdin) = fzf.stdin.take() {
         use std::io::Write;
         for repo in &repos {
-            let _ = writeln!(stdin, "{}", repo);
+            let _ = writeln!(stdin, "{repo}");
         }
     }
 

@@ -71,7 +71,7 @@ impl PtyManager {
 
         // Wait for serve to be ready
         if !wait_for_serve_ready(port, 10) {
-            anyhow::bail!("opencode serve did not start within 10s on port {}", port);
+            anyhow::bail!("opencode serve did not start within 10s on port {port}");
         }
 
         // Snapshot session IDs on this serve BEFORE spawning TUI
