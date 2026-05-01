@@ -228,8 +228,11 @@ pub fn poll_fast() -> anyhow::Result<PollSnapshot> {
 
 pub fn poll_full() -> anyhow::Result<PollSnapshot> {
     let mut snapshot = poll_fast()?;
-    let mut seen: std::collections::HashSet<String> =
-        snapshot.sessions.iter().map(|s| s.session_id.clone()).collect();
+    let mut seen: std::collections::HashSet<String> = snapshot
+        .sessions
+        .iter()
+        .map(|s| s.session_id.clone())
+        .collect();
 
     let reader = DbReader::open_default()?;
     let projects = reader.get_projects()?;
@@ -451,9 +454,7 @@ fn hydrate_session(
         status,
         process_pid,
         model: reader.get_session_model(session_id)?,
-        preview: reader
-            .get_last_message_preview(session_id)?
-            .map(|p| p.text),
+        preview: reader.get_last_message_preview(session_id)?.map(|p| p.text),
         time_updated: Some(session.time_updated),
         has_children: reader.has_child_sessions(session_id)?,
         children: collect_children(reader, session_id, 2)?,
@@ -565,8 +566,16 @@ mod tests {
         let db_path = temp_db_path("hydrate-miss");
         let _conn = init_db(&db_path);
         let reader = DbReader::open(&db_path).unwrap();
-        let result =
-            hydrate_session(&reader, "nonexistent", None, None, DiscoverySource::Serve, None, None).unwrap();
+        let result = hydrate_session(
+            &reader,
+            "nonexistent",
+            None,
+            None,
+            DiscoverySource::Serve,
+            None,
+            None,
+        )
+        .unwrap();
         assert!(result.is_none());
     }
 
@@ -586,7 +595,16 @@ mod tests {
         .unwrap();
 
         let reader = DbReader::open(&db_path).unwrap();
-        let result = hydrate_session(&reader, "sess1", None, None, DiscoverySource::Serve, None, None).unwrap();
+        let result = hydrate_session(
+            &reader,
+            "sess1",
+            None,
+            None,
+            DiscoverySource::Serve,
+            None,
+            None,
+        )
+        .unwrap();
         assert!(result.is_none());
     }
 
@@ -657,11 +675,19 @@ mod tests {
         let merged = merge_cached_serve_sessions(fast, &cached);
         assert_eq!(merged.sessions.len(), 3);
         // Fast B should win over cached B
-        let b = merged.sessions.iter().find(|s| s.session_id == "sess_b").unwrap();
+        let b = merged
+            .sessions
+            .iter()
+            .find(|s| s.session_id == "sess_b")
+            .unwrap();
         assert_eq!(b.title, "B");
         assert_eq!(b.source, DiscoverySource::TuiExplicit);
         // C should be added from cache
-        let c = merged.sessions.iter().find(|s| s.session_id == "sess_c").unwrap();
+        let c = merged
+            .sessions
+            .iter()
+            .find(|s| s.session_id == "sess_c")
+            .unwrap();
         assert_eq!(c.title, "C");
         assert_eq!(c.source, DiscoverySource::Serve);
     }
