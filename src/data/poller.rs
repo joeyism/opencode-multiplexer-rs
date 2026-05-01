@@ -204,7 +204,7 @@ pub fn poll_fast() -> anyhow::Result<PollSnapshot> {
                     .get_session_by_id(&managed_id)
                     .ok()
                     .flatten()
-                    .map_or(false, |s| s.project_id == project.id)
+                    .is_some_and(|s| s.project_id == project.id)
             })
             .cloned()
         else {
