@@ -553,7 +553,7 @@ fn apply_poll_snapshot_updates_via_serve_pid() {
 #[test]
 fn manager_can_attach_arbitrary_session_reuses_existing() {
     let mut manager = PtyManager::default();
-    
+
     // First, Poller discovers an active session in the background and registers it
     manager.apply_poll_snapshot(PollSnapshot {
         sessions: vec![DiscoveredSessionInfo {
@@ -571,11 +571,11 @@ fn manager_can_attach_arbitrary_session_reuses_existing() {
             source: DiscoverySource::Serve,
         }],
     });
-    
+
     assert_eq!(manager.len(), 1);
     let summary_before = manager.sessions().items()[0].clone();
     assert_eq!(summary_before.origin, SessionOrigin::Discovered);
-    
+
     // User tries to attach to it via the Session Picker UI
     manager
         .attach_arbitrary_session(
@@ -590,13 +590,28 @@ fn manager_can_attach_arbitrary_session_reuses_existing() {
         .unwrap();
 
     // The manager should REUSE the existing discovered entry, not create a second one.
-    assert_eq!(manager.len(), 1, "Should reuse existing session instead of duplicating");
-    
+    assert_eq!(
+        manager.len(),
+        1,
+        "Should reuse existing session instead of duplicating"
+    );
+
     let summary_after = manager.selected_summary().unwrap();
     assert_eq!(summary_after.session_id.as_deref(), Some("sess_existing"));
-    assert_eq!(summary_after.title, "Existing Attached", "Should update title");
-    assert_eq!(summary_after.status, SessionStatus::Working, "Should update status");
-    assert_eq!(summary_after.origin, SessionOrigin::Managed, "Should upgrade origin to Managed");
+    assert_eq!(
+        summary_after.title, "Existing Attached",
+        "Should update title"
+    );
+    assert_eq!(
+        summary_after.status,
+        SessionStatus::Working,
+        "Should update status"
+    );
+    assert_eq!(
+        summary_after.origin,
+        SessionOrigin::Managed,
+        "Should upgrade origin to Managed"
+    );
     assert!(manager.active_session().is_some(), "Should attach PTY");
 }
 
@@ -612,7 +627,7 @@ fn manager_apply_poll_snapshot_matches_unresolved_managed_session() {
         None, // missing session_id
         SessionOrigin::Managed,
         Some(123),
-        Some(122), // serve_pid
+        Some(122),  // serve_pid
         Some(4001), // serve_port
         None,
         None,
@@ -643,10 +658,18 @@ fn manager_apply_poll_snapshot_matches_unresolved_managed_session() {
     assert_eq!(manager.len(), 1, "Should not duplicate");
     let summary = manager.sessions().items()[0].clone();
     assert_eq!(summary.id, id);
-    assert_eq!(summary.session_id.as_deref(), Some("sess_guessed"), "Should adopt the guessed ID");
+    assert_eq!(
+        summary.session_id.as_deref(),
+        Some("sess_guessed"),
+        "Should adopt the guessed ID"
+    );
     assert_eq!(summary.title, "Guessed Title");
     assert_eq!(summary.status, SessionStatus::Idle);
-    assert_eq!(summary.origin, SessionOrigin::Managed, "Should stay managed");
+    assert_eq!(
+        summary.origin,
+        SessionOrigin::Managed,
+        "Should stay managed"
+    );
 }
 
 #[test]
@@ -760,7 +783,9 @@ fn session_id_match_takes_priority_over_serve_port() {
 #[test]
 fn test_specific_session_status() {
     let reader = opencode_multiplexer::data::db::reader::DbReader::open_default().unwrap();
-    let status = reader.get_session_status("ses_225490e46ffeDsv1XQ4g7jhPmq").unwrap();
+    let status = reader
+        .get_session_status("ses_225490e46ffeDsv1XQ4g7jhPmq")
+        .unwrap();
     println!("STATUS: {:?}", status);
     // assert!(false); // to see output
 }

@@ -1,15 +1,12 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
-    Frame,
 };
 
-use crate::{
-    app::message_picker::MessagePickerState,
-    ui::sidebar::relative_time_from_updated,
-};
+use crate::{app::message_picker::MessagePickerState, ui::sidebar::relative_time_from_updated};
 
 pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState, area: Rect) {
     let block = Block::default()
@@ -31,19 +28,21 @@ pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState,
     ])
     .areas(inner);
 
-    let [table_area, preview_area] = Layout::vertical([
-        Constraint::Percentage(55),
-        Constraint::Percentage(45),
-    ])
-    .areas(body_area);
+    let [table_area, preview_area] =
+        Layout::vertical([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(body_area);
 
     let search_line = Line::from(vec![
-        Span::styled(" Search: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Search: ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(&picker.query),
         Span::styled("█", Style::default().fg(Color::Cyan)),
     ]);
     frame.render_widget(Paragraph::new(search_line), search_area);
-    
+
     // Render empty spacer
     frame.render_widget(Paragraph::new(""), spacer_area);
 
@@ -64,15 +63,21 @@ pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState,
     let header = Row::new(vec![
         Cell::from(Span::styled(
             "Session",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
         Cell::from(Span::styled(
             "Message",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
         Cell::from(Span::styled(
             "Time",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
     ]);
 
@@ -81,21 +86,35 @@ pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState,
         .enumerate()
         .map(|(i, (entry, title_idx, text_idx))| {
             let is_selected = i + picker.scroll_offset == picker.selected;
-            
+
             // Session Title Styling
             let (title_normal, title_highlight) = if is_selected {
-                (Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD), selected_matched_style)
+                (
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                    selected_matched_style,
+                )
             } else {
-                (Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD), matched_style)
+                (
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                    matched_style,
+                )
             };
 
             // Message Preview Styling (dimmer)
             let (text_normal, text_highlight) = if is_selected {
-                (Style::default().fg(Color::White).bg(Color::DarkGray), selected_matched_style)
+                (
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                    selected_matched_style,
+                )
             } else {
                 (Style::default().fg(Color::DarkGray), matched_style)
             };
-            
+
             // Time Styling
             let time_style = if is_selected {
                 Style::default().fg(Color::White).bg(Color::DarkGray)
@@ -103,8 +122,13 @@ pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState,
                 Style::default().fg(Color::DarkGray)
             };
 
-            let title_cell = Cell::from(highlight_text(&entry.session_title, title_idx, title_normal, title_highlight));
-            
+            let title_cell = Cell::from(highlight_text(
+                &entry.session_title,
+                title_idx,
+                title_normal,
+                title_highlight,
+            ));
+
             // Truncate text for the table view so it doesn't wrap awkwardly
             let max_text_len = 100; // Arbitrary max length for the preview column
             let display_text = if entry.compact_text.chars().count() > max_text_len {
@@ -114,9 +138,14 @@ pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState,
             } else {
                 entry.compact_text.clone()
             };
-            
-            let text_cell = Cell::from(highlight_text(&display_text, text_idx, text_normal, text_highlight));
-            
+
+            let text_cell = Cell::from(highlight_text(
+                &display_text,
+                text_idx,
+                text_normal,
+                text_highlight,
+            ));
+
             let time = relative_time_from_updated(Some(entry.time_created));
             let time_cell = Cell::from(Span::styled(time, time_style));
 
@@ -156,7 +185,10 @@ pub fn render_message_picker(frame: &mut Frame, picker: &mut MessagePickerState,
         );
     } else {
         frame.render_widget(
-            Paragraph::new(Span::styled("No matching messages.", Style::default().fg(Color::DarkGray))),
+            Paragraph::new(Span::styled(
+                "No matching messages.",
+                Style::default().fg(Color::DarkGray),
+            )),
             preview_inner,
         );
     }

@@ -210,7 +210,13 @@ impl SessionPickerState {
                 }
             }
 
-            result.push((entry.clone(), repo_indices, title_indices, dir_indices, is_live));
+            result.push((
+                entry.clone(),
+                repo_indices,
+                title_indices,
+                dir_indices,
+                is_live,
+            ));
         }
 
         result
@@ -301,7 +307,13 @@ mod tests {
 
         assert_eq!(picker.live_session_ids, live_ids);
         assert_eq!(picker.total_count(), 2);
-        assert_eq!(picker.selected_entry().as_ref().map(|e| e.session_id.as_str()), Some("new"));
+        assert_eq!(
+            picker
+                .selected_entry()
+                .as_ref()
+                .map(|e| e.session_id.as_str()),
+            Some("new")
+        );
 
         let visible = picker.visible_entries(10);
         let (entry0, repo0, title0, dir0, live0) = &visible[0];

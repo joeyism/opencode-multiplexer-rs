@@ -121,9 +121,28 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
         .into_iter()
         .filter_map(|e| e.tui_pid)
         .collect();
+
+    let serve_sessions_by_port: HashMap<u16, Vec<String>> = std::thread::scope(|s| {
+        let mut handles = Vec::new();
+        for serve_process in &serve_processes {
+            let port = serve_process.port;
+            handles.push((
+                port,
+                s.spawn(move || fetch_recent_serve_session_ids(port).unwrap_or_default()),
+            ));
+        }
+        let mut results = HashMap::new();
+        for (port, handle) in handles {
+            results.insert(port, handle.join().unwrap_or_default());
+        }
+        results
+    });
+
     for serve_process in serve_processes {
-        for serve_session_id in
-            fetch_recent_serve_session_ids(serve_process.port).unwrap_or_default()
+        for serve_session_id in serve_sessions_by_port
+            .get(&serve_process.port)
+            .cloned()
+            .unwrap_or_default()
         {
             if seen.contains(&serve_session_id) {
                 continue;
@@ -242,7 +261,10 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
             continue;
         };
         let cwd = if session.directory.as_os_str().is_empty() {
-            if let Some(proj) = projects.iter().find(|project| project.id == session.project_id) {
+            if let Some(proj) = projects
+                .iter()
+                .find(|project| project.id == session.project_id)
+            {
                 proj.worktree.clone()
             } else {
                 continue;
@@ -257,7 +279,9 @@ pub fn poll_once() -> anyhow::Result<PollSnapshot> {
             status: reader.get_session_status(&managed_id)?,
             process_pid: None,
             model: reader.get_session_model(&managed_id)?,
-            preview: reader.get_last_message_preview(&managed_id)?.map(|preview| preview.text),
+            preview: reader
+                .get_last_message_preview(&managed_id)?
+                .map(|preview| preview.text),
             time_updated: Some(session.time_updated),
             has_children: reader.has_child_sessions(&managed_id)?,
             children: collect_children(&reader, &managed_id, 2)?,
@@ -303,7 +327,7 @@ fn collect_children(
 
 fn fetch_recent_serve_session_ids(port: u16) -> anyhow::Result<Vec<String>> {
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1))
+        .timeout(Duration::from_millis(200))
         .build()?;
     let response = client
         .get(format!("http://localhost:{port}/session"))

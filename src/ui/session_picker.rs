@@ -55,7 +55,9 @@ pub fn render_session_picker(frame: &mut Frame, picker: &mut SessionPickerState,
     let header = Row::new(vec![
         Cell::from(Span::styled(
             "",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
         )),
         Cell::from(Span::styled(
             "Repo",

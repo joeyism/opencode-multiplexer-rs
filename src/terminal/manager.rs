@@ -440,9 +440,7 @@ impl PtyManager {
                     // Managed sessions have an authoritative serve_port set at
                     // spawn time — a Serve discovery may report a different port
                     // when multiple serves share the same DB.
-                    if discovered.serve_port.is_some()
-                        && summary.origin != SessionOrigin::Managed
-                    {
+                    if discovered.serve_port.is_some() && summary.origin != SessionOrigin::Managed {
                         summary.serve_port = discovered.serve_port;
                     }
                 } else {
