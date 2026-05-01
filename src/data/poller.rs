@@ -393,9 +393,7 @@ fn hydrate_session(
         status,
         process_pid,
         model: reader.get_session_model(session_id)?,
-        preview: reader
-            .get_last_message_preview(session_id)?
-            .map(|p| p.text),
+        preview: reader.get_last_message_preview(session_id)?.map(|p| p.text),
         time_updated: Some(session.time_updated),
         has_children: reader.has_child_sessions(session_id)?,
         children: collect_children(reader, session_id, 2)?,
@@ -482,9 +480,15 @@ mod tests {
         .unwrap();
 
         let reader = DbReader::open(&db_path).unwrap();
-        let info = hydrate_session(&reader, "sess1", Some(123), Some(4200), DiscoverySource::Serve)
-            .unwrap()
-            .unwrap();
+        let info = hydrate_session(
+            &reader,
+            "sess1",
+            Some(123),
+            Some(4200),
+            DiscoverySource::Serve,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(info.session_id, "sess1");
         assert_eq!(info.title, "My Title");
         assert_eq!(info.status, SessionStatus::Idle);
@@ -520,8 +524,7 @@ mod tests {
         .unwrap();
 
         let reader = DbReader::open(&db_path).unwrap();
-        let result =
-            hydrate_session(&reader, "sess1", None, None, DiscoverySource::Serve).unwrap();
+        let result = hydrate_session(&reader, "sess1", None, None, DiscoverySource::Serve).unwrap();
         assert!(result.is_none());
     }
 }
