@@ -6,6 +6,48 @@ A terminal multiplexer for managing [OpenCode](https://opencode.ai) sessions.
 <video src="https://github.com/user-attachments/assets/93669f30-bb6c-4a71-935d-29541ee073ad" width="80%" controls></video>
 </p>
 
+## Feature Showcase
+
+<details>
+<summary><b>Diff View</b></summary>
+<p align="center" width="100%">
+<video src="https://github.com/user-attachments/assets/70cc5f29-118c-4d96-b611-a7192d246205" width="80%" controls></video>
+</p>
+</details>
+
+<details>
+<summary><b>Visual Mode</b></summary>
+<p align="center" width="100%">
+<video src="https://github.com/user-attachments/assets/ac156ecc-e8b8-47ee-8bd0-7a0815b5b836" width="80%" controls></video>
+</p>
+</details>
+
+<details>
+<summary><b>Sidebar Layouts</b></summary>
+<p align="center" width="100%">
+<video src="https://github.com/user-attachments/assets/2b2b4c2e-0739-4009-99bb-62e9de0d67f7" width="80%" controls></video>
+</p>
+</details>
+
+## Table of Contents
+- [Install](#install)
+- [Usage](#usage)
+- [Keybindings](#keybindings)
+  - [Sidebar navigation](#sidebar-navigation)
+  - [Session actions](#session-actions)
+  - [Session picker](#session-picker)
+  - [Message history picker](#message-history-picker)
+  - [Conversation view](#conversation-view)
+  - [Diff view](#diff-view)
+  - [Visual mode](#visual-mode)
+  - [Shell mode](#shell-mode)
+  - [Sidebar layout](#sidebar-layout)
+- [Advanced workflows](#advanced-workflows)
+- [System behaviors](#system-behaviors)
+- [Configuration](#configuration)
+- [Notes](#notes)
+- [License](#license)
+
 ## Install
 
 **Cargo:**
