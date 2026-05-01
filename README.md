@@ -1,4 +1,4 @@
-# ocmux
+# ocmux - Opencode Multiplexer
 
 A terminal multiplexer for managing [OpenCode](https://opencode.ai) sessions.
 
