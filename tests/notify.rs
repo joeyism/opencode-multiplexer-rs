@@ -1,5 +1,5 @@
-use ocmux_rs::app::sessions::SessionStatus;
-use ocmux_rs::notify::Notifier;
+use opencode_multiplexer::app::sessions::SessionStatus;
+use opencode_multiplexer::notify::Notifier;
 use std::thread;
 use std::time::Duration;
 

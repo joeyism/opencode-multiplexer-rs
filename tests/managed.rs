@@ -759,7 +759,7 @@ fn session_id_match_takes_priority_over_serve_port() {
 
 #[test]
 fn test_specific_session_status() {
-    let reader = ocmux_rs::data::db::reader::DbReader::open_default().unwrap();
+    let reader = opencode_multiplexer::data::db::reader::DbReader::open_default().unwrap();
     let status = reader.get_session_status("ses_225490e46ffeDsv1XQ4g7jhPmq").unwrap();
     println!("STATUS: {:?}", status);
     // assert!(false); // to see output
