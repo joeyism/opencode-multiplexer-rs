@@ -368,3 +368,160 @@ fn chrono_like_epoch(value: &str) -> Option<u64> {
         .ok()
         .map(|dt| dt.timestamp().max(0) as u64)
 }
+
+/// Hydrate a single session from the DB into a `DiscoveredSessionInfo`.
+/// Returns `Ok(None)` if the session doesn't exist or has no directory.
+#[cfg(test)]
+fn hydrate_session(
+    reader: &DbReader,
+    session_id: &str,
+    process_pid: Option<u32>,
+    serve_port: Option<u16>,
+    source: DiscoverySource,
+) -> anyhow::Result<Option<DiscoveredSessionInfo>> {
+    let Some(session) = reader.get_session_by_id(session_id)? else {
+        return Ok(None);
+    };
+    if session.directory.as_os_str().is_empty() {
+        return Ok(None);
+    }
+    let status = reader.get_session_status(session_id)?;
+    Ok(Some(DiscoveredSessionInfo {
+        session_id: session_id.to_string(),
+        cwd: session.directory.clone(),
+        title: session.title.clone(),
+        status,
+        process_pid,
+        model: reader.get_session_model(session_id)?,
+        preview: reader
+            .get_last_message_preview(session_id)?
+            .map(|p| p.text),
+        time_updated: Some(session.time_updated),
+        has_children: reader.has_child_sessions(session_id)?,
+        children: collect_children(reader, session_id, 2)?,
+        serve_port,
+        source,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::sessions::SessionStatus;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ocmux-rs-{label}-{nanos}.db"))
+    }
+
+    fn init_db(path: &PathBuf) -> Connection {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE project (
+                id TEXT PRIMARY KEY,
+                worktree TEXT NOT NULL,
+                name TEXT,
+                time_created INTEGER,
+                time_updated INTEGER
+            );
+            CREATE TABLE session (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                parent_id TEXT,
+                title TEXT,
+                directory TEXT,
+                permission TEXT,
+                time_created INTEGER,
+                time_updated INTEGER,
+                time_archived INTEGER
+            );
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                time_created INTEGER
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                time_created INTEGER
+            );
+            "#,
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn hydrate_session_builds_info_from_db() {
+        let db_path = temp_db_path("hydrate");
+        let conn = init_db(&db_path);
+        conn.execute(
+            "INSERT INTO project VALUES ('proj1', '/tmp/proj', 'proj', 100, 200)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session VALUES ('sess1', 'proj1', NULL, 'My Title', '/tmp/proj', NULL, 100, 200, NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"INSERT INTO message VALUES ('msg1', 'sess1', '{"role":"assistant","time":{"completed":200}}', 200)"#,
+            [],
+        )
+        .unwrap();
+
+        let reader = DbReader::open(&db_path).unwrap();
+        let info = hydrate_session(&reader, "sess1", Some(123), Some(4200), DiscoverySource::Serve)
+            .unwrap()
+            .unwrap();
+        assert_eq!(info.session_id, "sess1");
+        assert_eq!(info.title, "My Title");
+        assert_eq!(info.status, SessionStatus::Idle);
+        assert_eq!(info.process_pid, Some(123));
+        assert_eq!(info.serve_port, Some(4200));
+        assert_eq!(info.source, DiscoverySource::Serve);
+        assert_eq!(info.cwd, PathBuf::from("/tmp/proj"));
+    }
+
+    #[test]
+    fn hydrate_session_returns_none_for_missing_session() {
+        let db_path = temp_db_path("hydrate-miss");
+        let _conn = init_db(&db_path);
+        let reader = DbReader::open(&db_path).unwrap();
+        let result =
+            hydrate_session(&reader, "nonexistent", None, None, DiscoverySource::Serve).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn hydrate_session_returns_none_for_empty_directory() {
+        let db_path = temp_db_path("hydrate-nodir");
+        let conn = init_db(&db_path);
+        conn.execute(
+            "INSERT INTO project VALUES ('proj1', '/tmp/proj', 'proj', 100, 200)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session VALUES ('sess1', 'proj1', NULL, 'Title', '', NULL, 100, 200, NULL)",
+            [],
+        )
+        .unwrap();
+
+        let reader = DbReader::open(&db_path).unwrap();
+        let result =
+            hydrate_session(&reader, "sess1", None, None, DiscoverySource::Serve).unwrap();
+        assert!(result.is_none());
+    }
+}
