@@ -192,7 +192,9 @@ impl DbReader {
                         id: row.get(0)?,
                         project_id: row.get(1)?,
                         title: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                        directory: PathBuf::from(row.get::<_, Option<String>>(3)?.unwrap_or_default()),
+                        directory: PathBuf::from(
+                            row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                        ),
                         time_updated: row.get(4)?,
                     })
                 },
