@@ -179,12 +179,38 @@ impl DbReader {
         limit: usize,
         offset: usize,
     ) -> anyhow::Result<Vec<DbSession>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, directory, time_updated FROM session WHERE parent_id = ?1 AND time_archived IS NULL ORDER BY time_created DESC LIMIT ?2 OFFSET ?3",
-        )?;
-        let rows = stmt.query_map(
-            params![parent_session_id, limit as i64, offset as i64],
-            |row| {
+        let referenced_ids = self.task_referenced_child_ids(parent_session_id)?;
+
+        if referenced_ids.is_empty() {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, project_id, title, directory, time_updated FROM session WHERE parent_id = ?1 AND time_archived IS NULL ORDER BY time_created DESC LIMIT ?2 OFFSET ?3",
+            )?;
+            let rows = stmt.query_map(
+                params![parent_session_id, limit as i64, offset as i64],
+                |row| {
+                    Ok(DbSession {
+                        id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        title: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                        directory: PathBuf::from(row.get::<_, Option<String>>(3)?.unwrap_or_default()),
+                        time_updated: row.get(4)?,
+                    })
+                },
+            )?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        } else {
+            // Filter non-archived sessions from the referenced set.
+            // We preserve time_created DESC order for the final list.
+            let mut stmt = self.conn.prepare(
+                "SELECT id, project_id, title, directory, time_updated 
+                 FROM session 
+                 WHERE id IN (SELECT value FROM json_each(?1)) 
+                   AND time_archived IS NULL 
+                 ORDER BY time_created DESC 
+                 LIMIT ?2 OFFSET ?3",
+            )?;
+            let ids_json = serde_json::to_string(&referenced_ids)?;
+            let rows = stmt.query_map(params![ids_json, limit as i64, offset as i64], |row| {
                 Ok(DbSession {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
@@ -192,18 +218,48 @@ impl DbReader {
                     directory: PathBuf::from(row.get::<_, Option<String>>(3)?.unwrap_or_default()),
                     time_updated: row.get(4)?,
                 })
-            },
-        )?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        }
     }
 
     pub fn has_child_sessions(&self, session_id: &str) -> anyhow::Result<bool> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM session WHERE parent_id = ?1 AND time_archived IS NULL LIMIT 1",
-            [session_id],
-            |row| row.get(0),
+        let referenced_ids = self.task_referenced_child_ids(session_id)?;
+
+        if referenced_ids.is_empty() {
+            let count: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM session WHERE parent_id = ?1 AND time_archived IS NULL LIMIT 1",
+                [session_id],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        } else {
+            let ids_json = serde_json::to_string(&referenced_ids)?;
+            let count: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM session WHERE id IN (SELECT value FROM json_each(?1)) AND time_archived IS NULL LIMIT 1",
+                [ids_json],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        }
+    }
+
+    /// Returns the set of session IDs explicitly referenced as subagents in
+    /// the parent session's `task` tool metadata.
+    ///
+    /// This is used to filter out duplicate/retry child sessions that share
+    /// the same `parent_id` but were not the final/successful task session.
+    pub fn task_referenced_child_ids(&self, session_id: &str) -> anyhow::Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT json_extract(data, '$.state.metadata.sessionId') as sid
+             FROM part
+             WHERE session_id = ?1
+               AND json_extract(data, '$.tool') = 'task'
+               AND sid IS NOT NULL",
         )?;
-        Ok(count > 0)
+        let rows = stmt.query_map([session_id], |row| row.get(0))?;
+        let ids: Vec<String> = rows.collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(ids)
     }
 
     pub fn is_top_level_session(&self, session_id: &str) -> anyhow::Result<bool> {
@@ -948,6 +1004,120 @@ mod tests {
         let reader = DbReader::open(&db_path).unwrap();
 
         // Parent should be Idle because child is archived
+        assert_eq!(
+            reader.get_session_status("parent", None).unwrap(),
+            SessionStatus::Idle
+        );
+    }
+
+    #[test]
+    fn get_child_sessions_filters_by_task_metadata() {
+        let db_path = temp_db_path("filter-metadata");
+        let conn = init_db(&db_path);
+        conn.execute(
+            "INSERT INTO project VALUES ('proj1', '/tmp/proj', 'proj', 100, 200)",
+            [],
+        )
+        .unwrap();
+
+        // Parent session
+        conn.execute(
+            "INSERT INTO session VALUES ('parent', 'proj1', NULL, 'Parent', '/tmp/proj', NULL, 100, 200, NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"INSERT INTO message VALUES ('msg-p', 'parent', '{"role":"assistant"}', 200)"#,
+            [],
+        )
+        .unwrap();
+
+        // Child A (referenced)
+        conn.execute(
+            "INSERT INTO session VALUES ('child-a', 'proj1', 'parent', 'Child A', '/tmp/proj/a', NULL, 150, 250, NULL)",
+            [],
+        )
+        .unwrap();
+        // Child B (NOT referenced - e.g. a failed attempt or retry)
+        conn.execute(
+            "INSERT INTO session VALUES ('child-b', 'proj1', 'parent', 'Child B', '/tmp/proj/b', NULL, 160, 260, NULL)",
+            [],
+        )
+        .unwrap();
+
+        // Task part referencing only Child A
+        conn.execute(
+            r#"INSERT INTO part VALUES ('part-p', 'parent', 'msg-p', '{"type":"tool","tool":"task","state":{"metadata":{"sessionId":"child-a"}}}', 210)"#,
+            [],
+        )
+        .unwrap();
+
+        let reader = DbReader::open(&db_path).unwrap();
+
+        let children = reader.get_child_sessions("parent", 10, 0).unwrap();
+        // Should only return child-a
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].id, "child-a");
+
+        assert!(reader.has_child_sessions("parent").unwrap());
+    }
+
+    #[test]
+    fn get_session_status_ignores_unreferenced_workers() {
+        let db_path = temp_db_path("rollup-filter");
+        let conn = init_db(&db_path);
+        conn.execute(
+            "INSERT INTO project VALUES ('proj1', '/tmp/proj', 'proj', 100, 200)",
+            [],
+        )
+        .unwrap();
+
+        // Parent session (Idle)
+        conn.execute(
+            "INSERT INTO session VALUES ('parent', 'proj1', NULL, 'Parent', '/tmp/proj', NULL, 100, 200, NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"INSERT INTO message VALUES ('msg-p', 'parent', '{"role":"assistant","time":{"completed":200}}', 200)"#,
+            [],
+        )
+        .unwrap();
+
+        // Referenced Child (Idle)
+        conn.execute(
+            "INSERT INTO session VALUES ('child-ref', 'proj1', 'parent', 'Ref', '/tmp/proj/ref', NULL, 150, 250, NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"INSERT INTO message VALUES ('msg-r', 'child-ref', '{"role":"assistant","time":{"completed":250}}', 250)"#,
+            [],
+        )
+        .unwrap();
+
+        // Unreferenced Child (Working)
+        conn.execute(
+            "INSERT INTO session VALUES ('child-ghost', 'proj1', 'parent', 'Ghost', '/tmp/proj/ghost', NULL, 160, 260, NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"INSERT INTO message VALUES ('msg-g', 'child-ghost', '{"role":"assistant"}', 260)"#,
+            [],
+        )
+        .unwrap();
+
+        // Task part referencing only child-ref
+        conn.execute(
+            r#"INSERT INTO part VALUES ('part-p', 'parent', 'msg-p', '{"type":"tool","tool":"task","state":{"metadata":{"sessionId":"child-ref"}}}', 210)"#,
+            [],
+        )
+        .unwrap();
+
+        let reader = DbReader::open(&db_path).unwrap();
+
+        // Parent should be Idle because the Working ghost child is ignored
         assert_eq!(
             reader.get_session_status("parent", None).unwrap(),
             SessionStatus::Idle
