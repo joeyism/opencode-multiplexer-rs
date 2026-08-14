@@ -1,3 +1,4 @@
+use crate::app::agents::AgentsViewState;
 use crate::app::focus::AppFocus;
 use crate::app::message_picker::MessagePickerState;
 use crate::app::session_manager::SessionManagerState;
@@ -17,6 +18,7 @@ pub struct AppState {
     pub session_manager: Option<SessionManagerState>,
     pub message_picker: Option<MessagePickerState>,
     pub confirm_quit: bool,
+    pub agents: AgentsViewState,
 }
 
 impl Default for AppState {
@@ -34,6 +36,7 @@ impl Default for AppState {
             session_manager: None,
             message_picker: None,
             confirm_quit: false,
+            agents: AgentsViewState::default(),
         }
     }
 }

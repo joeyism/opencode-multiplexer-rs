@@ -8,8 +8,8 @@ use ratatui::{
 
 use crate::{
     app::{
-        conversation::ConversationViewState, diff::DiffViewState, focus::AppFocus,
-        message_picker::MessagePickerState, session_manager::SessionManagerState,
+        agents::AgentsViewState, conversation::ConversationViewState, diff::DiffViewState,
+        focus::AppFocus, message_picker::MessagePickerState, session_manager::SessionManagerState,
         session_picker::SessionPickerState,
     },
     config::Keybindings,
@@ -42,6 +42,7 @@ pub fn render(
     app_focused: bool,
     conversation: &ConversationViewState,
     diff: &DiffViewState,
+    agents: &AgentsViewState,
     session_picker: Option<&mut SessionPickerState>,
     session_manager: Option<&mut SessionManagerState>,
     message_picker: Option<&mut MessagePickerState>,
@@ -64,7 +65,7 @@ pub fn render(
         Style::default().fg(Color::DarkGray)
     } else if matches!(
         focus,
-        AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff
+        AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff | AppFocus::Agents
     ) {
         Style::default().fg(Color::Cyan)
     } else {
@@ -75,6 +76,7 @@ pub fn render(
         AppFocus::Terminal => " opencode [live] ",
         AppFocus::Conversation => " opencode [read-only] ",
         AppFocus::Diff => " opencode [diff] ",
+        AppFocus::Agents => " opencode [agents] ",
     };
     let title_text = if let Some(summary) = manager.active_summary() {
         let repo = repo_root_name(&summary.cwd);
@@ -302,6 +304,8 @@ pub fn render(
                 }
             }
         }
+    } else if matches!(focus, AppFocus::Agents) {
+        crate::ui::agents::render_agents(frame, inner, agents.graph.as_ref(), agents.selected);
     } else if let Some(pty) = manager.active_session() {
         frame.render_widget(Paragraph::new(""), inner);
         frame.render_widget(
@@ -329,24 +333,8 @@ pub fn render(
     }
 
     if show_help {
-        let help = Paragraph::new(format!(
-            "{} focus\n{} / {} move\nEnter attach/open\n{} view\n{} files\n{} diff\n{} spawn\n{} worktree\n/ attach\n{} manage\n{} history\n{} kill\n{} help\n{} quit",
-            "Ctrl-\\",
-            keys.down,
-            keys.up,
-            keys.view,
-            keys.files,
-            keys.diff,
-            keys.spawn,
-            keys.worktree,
-            keys.sessions,
-            keys.history,
-            keys.kill,
-            keys.help,
-            keys.quit,
-        ))
-        .block(Block::bordered().title("help"));
-        let popup = centered_rect(frame.area(), 50, 40);
+        let help = Paragraph::new(help_text(keys)).block(Block::bordered().title("help"));
+        let popup = centered_rect(frame.area(), 62, 78);
         frame.render_widget(Clear, popup);
         frame.render_widget(help, popup);
     }
@@ -381,4 +369,58 @@ pub fn render(
         frame.render_widget(Clear, popup);
         frame.render_widget(quit_msg, popup);
     }
+}
+
+fn help_text(keys: &Keybindings) -> String {
+    let lines = [
+        "Sidebar".to_string(),
+        "  Ctrl-\\           focus sidebar/terminal".into(),
+        "  Ctrl-h           hide/show sidebar".into(),
+        format!("  {}/{} · ↑/↓     move selection", keys.down, keys.up),
+        "  Enter            attach / open session".into(),
+        "  Tab              expand/collapse children".into(),
+        format!("  {:<16} spawn new session", keys.spawn),
+        format!("  {:<16} worktree + spawn", keys.worktree),
+        format!("  {:<16} agents relationship view", keys.agents),
+        format!("  {:<16} conversation view", keys.view),
+        format!("  {:<16} diff view", keys.diff),
+        format!("  {:<16} list modified files", keys.files),
+        "  /                session picker (attach)".into(),
+        format!("  {:<16} session manager (delete)", keys.sessions),
+        format!("  {:<16} message history picker", keys.history),
+        "  r                refresh active session".into(),
+        "  !                shell in session directory".into(),
+        "  c                commit/push modified files".into(),
+        format!("  {:<16} kill session (y confirm)", keys.kill),
+        format!("  {:<16} toggle this help", keys.help),
+        format!("  {:<16} quit (y confirm)", keys.quit),
+        String::new(),
+        "Agents view".into(),
+        "  j/k · ↑/↓        move  ·  g/G top/end".into(),
+        "  Enter            attach to linked session".into(),
+        "  v                conversation  ·  d diff".into(),
+        "  a/q/Esc          back".into(),
+        String::new(),
+        "Conversation view".into(),
+        "  j/k · ↑/↓        scroll  ·  g/G top/end".into(),
+        "  Ctrl-u/d         page up/down".into(),
+        "  /                search  ·  n/N next/prev".into(),
+        format!("  {}/q/Esc          close", keys.view),
+        String::new(),
+        "Diff view".into(),
+        "  j/k · ↑/↓        move cursor  ·  g/G top/end".into(),
+        "  Ctrl-u/d         page  ·  Ctrl-y/e scroll view".into(),
+        "  /                search  ·  n/N next/prev".into(),
+        "  v                visual select  ·  Enter paste".into(),
+        format!("  {}/q/Esc          close", keys.diff),
+        String::new(),
+        "Pickers (session / history / manager)".into(),
+        "  type             fuzzy filter".into(),
+        "  ↑/↓              move  ·  Enter confirm".into(),
+        "  Esc              cancel".into(),
+        "  manager: Tab select · Ctrl-a all · Ctrl-u clear · Ctrl-d delete".into(),
+        String::new(),
+        "Esc or any key closes this help.".into(),
+    ];
+    lines.join("\n")
 }

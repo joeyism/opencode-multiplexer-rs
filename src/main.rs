@@ -15,6 +15,7 @@ use crossterm::{
 use opencode_multiplexer::{
     app::{
         Action,
+        agents::AgentGraph,
         conversation::ConversationViewState,
         diff::DiffViewState,
         focus::AppFocus,
@@ -29,11 +30,12 @@ use opencode_multiplexer::{
     config::load_config,
     data::{
         db::{reader::DbReader, writer::DbWriter},
+        parallel_builds::load_snapshot,
         poller::start_poller,
     },
     notify::Notifier,
     ops::git::{diff_worktree, fetch_session_diff_from_serve},
-    ops::opencode_events::{SessionCreatedEvent, SessionEventSubscriber},
+    ops::opencode_events::{ServeEvent, SessionEventSubscriber},
     ops::worktree::create_worktree,
     ops::{fzf::pick_directory, opencode::display_title_for_cwd},
     registry::{load_serve_registry, save_managed_sessions},
@@ -103,12 +105,13 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
     };
     conversation.set_mermaid_config(mermaid_config);
     let mut diff_view = DiffViewState::default();
+    let mut open_requests = opencode_multiplexer::ops::open_requests::OpenRequestTracker::default();
     let mut terminal_selection = TerminalSelection::default();
     let (poll_tx, poll_rx) = std::sync::mpsc::channel();
     let poller = start_poller(poll_tx);
 
     // SSE event channel — receives session.created events from serve subscribers
-    let (event_tx, event_rx) = std::sync::mpsc::channel::<(u16, SessionCreatedEvent)>();
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<(u16, ServeEvent)>();
     let mut subscribers: Vec<SessionEventSubscriber> = Vec::new();
 
     // Start SSE subscribers for existing serves from the registry
@@ -117,6 +120,8 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
     }
 
     let mut prev_selected_kind: Option<SidebarRowKind> = None;
+    let mut last_agents_refresh = Instant::now() - Duration::from_secs(2);
+    let mut last_reconcile = Instant::now() - Duration::from_secs(60);
     let result = (|| -> Result<(), Box<dyn Error>> {
         loop {
             while let Ok(snapshot) = poll_rx.try_recv() {
@@ -128,7 +133,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     .filter_map(|s| Some((s.session_id.clone()?, s.status)))
                     .collect();
 
-                let registry_dirty = manager.apply_poll_snapshot(snapshot.clone());
+                let registry_dirty = manager.apply_poll_snapshot(snapshot.clone(), &open_requests);
                 if registry_dirty {
                     let _ = save_managed_sessions(manager.managed_session_ids());
                 }
@@ -153,11 +158,19 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 }
             }
 
-            // Drain SSE session.created events
+            // Drain SSE events
             while let Ok((port, event)) = event_rx.try_recv() {
-                let dirty = manager.apply_session_event(port, &event);
-                if dirty {
-                    let _ = save_managed_sessions(manager.managed_session_ids());
+                match event {
+                    ServeEvent::SessionCreated(e) => {
+                        let dirty = manager.apply_session_event(port, &e);
+                        if dirty {
+                            let _ = save_managed_sessions(manager.managed_session_ids());
+                        }
+                    }
+                    _ => {
+                        open_requests.apply(port, &event);
+                        manager.apply_open_requests_overlay(&open_requests);
+                    }
                 }
             }
 
@@ -221,6 +234,20 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                 }
             }
 
+            if state.focus == AppFocus::Agents
+                && last_agents_refresh.elapsed() >= Duration::from_secs(1)
+                && let Some(row) = rows.get(state.selected_sidebar_row)
+                && let Some(root_summary) = selected_root_summary(&manager, row)
+            {
+                let snapshot = root_summary.session_id.as_deref().and_then(|session_id| {
+                    load_snapshot(&root_summary.cwd, session_id).ok().flatten()
+                });
+                state
+                    .agents
+                    .replace_graph(AgentGraph::from_snapshot(&root_summary, snapshot.as_ref()));
+                last_agents_refresh = Instant::now();
+            }
+
             if let Some(picker) = state.session_picker.as_mut() {
                 picker.tick();
             }
@@ -229,6 +256,29 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
             }
             if let Some(picker) = state.message_picker.as_mut() {
                 picker.tick();
+            }
+
+            if last_reconcile.elapsed() >= Duration::from_secs(30) {
+                let ports: Vec<u16> = manager
+                    .sessions()
+                    .items()
+                    .iter()
+                    .filter_map(|s| s.serve_port)
+                    .collect();
+                for port in ports {
+                    if let Ok(permissions) =
+                        opencode_multiplexer::ops::opencode::fetch_pending_permissions(port)
+                    {
+                        open_requests.reconcile_port(port, permissions);
+                    }
+                    if let Ok(questions) =
+                        opencode_multiplexer::ops::opencode::fetch_pending_questions(port)
+                    {
+                        open_requests.reconcile_questions(port, questions);
+                    }
+                }
+                manager.apply_open_requests_overlay(&open_requests);
+                last_reconcile = Instant::now();
             }
 
             terminal.draw(|frame| {
@@ -247,6 +297,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                     state.app_focused,
                     &conversation,
                     &diff_view,
+                    &state.agents,
                     state.session_picker.as_mut(),
                     state.session_manager.as_mut(),
                     state.message_picker.as_mut(),
@@ -510,6 +561,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                                 | AppFocus::Sidebar
                                 | AppFocus::Diff
                                 | AppFocus::Conversation
+                                | AppFocus::Agents
                         )
                     {
                         reduce(&mut state, Action::TogglePanelHidden);
@@ -714,6 +766,27 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                                     } else {
                                         footer_message = Some("no session ID for this row".into());
                                     }
+                                }
+                            }
+                            KeyCode::Char(c) if c == config.keybindings.agents => {
+                                if let Some(row) = rows.get(state.selected_sidebar_row)
+                                    && let Some(root_summary) = selected_root_summary(&manager, row)
+                                {
+                                    let selected_id = row.session_id.as_deref();
+                                    let snapshot =
+                                        root_summary.session_id.as_deref().and_then(|session_id| {
+                                            load_snapshot(&root_summary.cwd, session_id)
+                                                .ok()
+                                                .flatten()
+                                        });
+                                    state.agents.open_at(
+                                        AgentGraph::from_snapshot(&root_summary, snapshot.as_ref()),
+                                        AppFocus::Sidebar,
+                                        selected_id,
+                                    );
+                                    last_agents_refresh = Instant::now();
+                                    reduce(&mut state, Action::SetFocus(AppFocus::Agents));
+                                    footer_message = None;
                                 }
                             }
                             KeyCode::Char('/') => {
@@ -1085,6 +1158,71 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<(),
                             KeyAction::ConfirmQuit => {
                                 state.confirm_quit = true;
                             }
+                        }
+                    } else if matches!(state.focus, AppFocus::Agents) {
+                        match key.code {
+                            KeyCode::Char('j') | KeyCode::Down => state.agents.move_down(),
+                            KeyCode::Char('k') | KeyCode::Up => state.agents.move_up(),
+                            KeyCode::Char('g') => state.agents.move_top(),
+                            KeyCode::Char('G') => state.agents.move_bottom(),
+                            KeyCode::Char('a') | KeyCode::Char('q') | KeyCode::Esc => {
+                                let return_focus = state.agents.close();
+                                reduce(&mut state, Action::SetFocus(return_focus));
+                            }
+                            KeyCode::Enter => {
+                                if let Some(node) = state.agents.selected_node().cloned()
+                                    && let Some(session_id) = node.session_id
+                                {
+                                    let (rows, cols) =
+                                        pane_size(terminal.size()?.into(), sidebar_width);
+                                    if let Err(error) = manager.attach_arbitrary_session(
+                                        session_id,
+                                        node.cwd,
+                                        node.title,
+                                        SessionStatus::Idle,
+                                        None,
+                                        rows,
+                                        cols,
+                                    ) {
+                                        footer_message = Some(format!("attach failed: {error}"));
+                                    } else {
+                                        reduce(&mut state, Action::SetFocus(AppFocus::Terminal));
+                                    }
+                                }
+                            }
+                            KeyCode::Char('v') => {
+                                if let Some(node) = state.agents.selected_node().cloned()
+                                    && let Some(session_id) = node.session_id
+                                {
+                                    conversation.open(session_id, node.title, AppFocus::Agents);
+                                    reduce(&mut state, Action::SetFocus(AppFocus::Conversation));
+                                }
+                            }
+                            KeyCode::Char('d') => {
+                                if let Some(node) = state.agents.selected_node().cloned()
+                                    && let Some(ref session_id) = node.session_id
+                                {
+                                    let row = agent_sidebar_row(&node, session_id.clone());
+                                    match resolve_session_diff(&row, session_id) {
+                                        Ok(diff) => {
+                                            diff_view.open(
+                                                session_id.clone(),
+                                                node.title,
+                                                diff,
+                                                AppFocus::Agents,
+                                            );
+                                            let (doc, meta) = ui_diff::build_diff_document(
+                                                diff_view.raw_diff(),
+                                                content_width,
+                                            );
+                                            diff_view.replace_document(doc, meta, viewport_height);
+                                            reduce(&mut state, Action::SetFocus(AppFocus::Diff));
+                                        }
+                                        Err(error) => footer_message = Some(error),
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     } else if matches!(state.focus, AppFocus::Terminal)
                         && let Some(pty) = manager.active_session_mut()
@@ -1458,6 +1596,56 @@ fn resolve_session_cwd(
         }
     }
     None
+}
+
+fn selected_root_summary(
+    manager: &PtyManager,
+    row: &opencode_multiplexer::ui::sidebar::SidebarVisibleRow,
+) -> Option<opencode_multiplexer::app::sessions::SessionSummary> {
+    let session = manager
+        .sessions()
+        .items()
+        .iter()
+        .find(|summary| match &row.kind {
+            SidebarRowKind::TopLevel { top_level_id, .. } => summary.id == *top_level_id,
+            SidebarRowKind::Child { session_id } => summary
+                .children
+                .iter()
+                .any(|child| contains_child(child, session_id)),
+        })?;
+    Some(session.clone())
+}
+
+fn agent_sidebar_row(
+    node: &opencode_multiplexer::app::agents::AgentNode,
+    session_id: String,
+) -> opencode_multiplexer::ui::sidebar::SidebarVisibleRow {
+    opencode_multiplexer::ui::sidebar::SidebarVisibleRow {
+        kind: SidebarRowKind::Child {
+            session_id: session_id.clone(),
+        },
+        cwd: node.cwd.clone(),
+        title: node.title.clone(),
+        status: SessionStatus::Idle,
+        depth: node.depth,
+        has_children: false,
+        expanded: false,
+        active: false,
+        origin: opencode_multiplexer::app::sessions::SessionOrigin::Managed,
+        session_id: Some(session_id),
+        time_updated: None,
+    }
+}
+
+fn contains_child(
+    child: &opencode_multiplexer::data::poller::ChildSessionInfo,
+    session_id: &str,
+) -> bool {
+    child.session_id == session_id
+        || child
+            .children
+            .iter()
+            .any(|nested| contains_child(nested, session_id))
 }
 
 /// Resolve the diff for a session. Tries the opencode serve API first (targeted

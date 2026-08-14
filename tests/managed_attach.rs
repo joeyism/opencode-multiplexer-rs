@@ -154,12 +154,15 @@ fn apply_session_event_then_poll_updates_title() {
     assert!(dirty);
 
     // Now the poller should hydrate the title via the resolved session_id
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![discovered(
-            "sess_real",
-            "ADO-3225 - CPTP to Cost per ThruPlay",
-        )],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![discovered(
+                "sess_real",
+                "ADO-3225 - CPTP to Cost per ThruPlay",
+            )],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.sessions().items()[0].clone();
     assert_eq!(summary.session_id.as_deref(), Some("sess_real"));
@@ -182,9 +185,12 @@ fn apply_session_event_for_new_session_then_poll_updates_title() {
     manager.apply_session_event(4200, &event);
 
     // Poller picks up the new session's metadata
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![discovered("new_sess", "New Session Title")],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![discovered("new_sess", "New Session Title")],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.sessions().items()[0].clone();
     assert_eq!(summary.session_id.as_deref(), Some("new_sess"));
@@ -196,14 +202,17 @@ fn serve_discovery_does_not_claim_unresolved_managed_entry() {
     let mut manager = PtyManager::default();
     register_managed(&mut manager, None, Some(4200), "ledger-extraction");
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![discovered_with_source(
-            "sess_other",
-            "Other Session",
-            DiscoverySource::Serve,
-            Some(200),
-        )],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![discovered_with_source(
+                "sess_other",
+                "Other Session",
+                DiscoverySource::Serve,
+                Some(200),
+            )],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.sessions().items()[0].clone();
     assert_eq!(summary.session_id.as_deref(), None);

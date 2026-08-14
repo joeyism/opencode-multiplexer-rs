@@ -74,3 +74,66 @@ pub fn wait_for_serve_ready(port: u16, timeout_secs: u64) -> bool {
     }
     false
 }
+
+pub fn fetch_pending_permissions(port: u16) -> anyhow::Result<Vec<(String, String)>> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let resp = client
+        .get(format!("http://localhost:{port}/permission"))
+        .send()?;
+    if !resp.status().is_success() {
+        return Ok(vec![]);
+    }
+    let json: serde_json::Value = resp.json()?;
+    // Handle both top-level array and { "data": [...] }
+    let items = if let Some(arr) = json.as_array() {
+        arr
+    } else if let Some(arr) = json.get("data").and_then(|v| v.as_array()) {
+        arr
+    } else {
+        return Ok(vec![]);
+    };
+
+    let mut result = Vec::new();
+    for item in items {
+        if let (Some(id), Some(session_id)) = (
+            item.get("id").and_then(|v| v.as_str()),
+            item.get("sessionID").and_then(|v| v.as_str()),
+        ) {
+            result.push((id.to_string(), session_id.to_string()));
+        }
+    }
+    Ok(result)
+}
+
+pub fn fetch_pending_questions(port: u16) -> anyhow::Result<Vec<(String, String)>> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let resp = client
+        .get(format!("http://localhost:{port}/question"))
+        .send()?;
+    if !resp.status().is_success() {
+        return Ok(vec![]);
+    }
+    let json: serde_json::Value = resp.json()?;
+    let items = if let Some(arr) = json.as_array() {
+        arr
+    } else if let Some(arr) = json.get("data").and_then(|v| v.as_array()) {
+        arr
+    } else {
+        return Ok(vec![]);
+    };
+
+    let mut result = Vec::new();
+    for item in items {
+        if let (Some(id), Some(session_id)) = (
+            item.get("id").and_then(|v| v.as_str()),
+            item.get("sessionID").and_then(|v| v.as_str()),
+        ) {
+            result.push((id.to_string(), session_id.to_string()));
+        }
+    }
+    Ok(result)
+}

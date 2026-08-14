@@ -12,30 +12,33 @@ use portable_pty::CommandBuilder;
 #[test]
 fn flatten_sidebar_entries_hides_and_shows_children_based_on_expansion() {
     let mut manager = PtyManager::default();
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "parent".into(),
-            cwd: PathBuf::from("/tmp/parent"),
-            title: "parent".into(),
-            status: SessionStatus::Idle,
-            process_pid: Some(1),
-            model: None,
-            preview: None,
-            time_updated: None,
-            has_children: true,
-            children: vec![opencode_multiplexer::data::poller::ChildSessionInfo {
-                session_id: "child".into(),
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "parent".into(),
                 cwd: PathBuf::from("/tmp/parent"),
-                title: "child".into(),
-                status: SessionStatus::NeedsInput,
+                title: "parent".into(),
+                status: SessionStatus::Idle,
+                process_pid: Some(1),
+                model: None,
+                preview: None,
                 time_updated: None,
-                has_children: false,
-                children: vec![],
+                has_children: true,
+                children: vec![opencode_multiplexer::data::poller::ChildSessionInfo {
+                    session_id: "child".into(),
+                    cwd: PathBuf::from("/tmp/parent"),
+                    title: "child".into(),
+                    status: SessionStatus::NeedsInput,
+                    time_updated: None,
+                    has_children: false,
+                    children: vec![],
+                }],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
             }],
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+        },
+        &Default::default(),
+    );
 
     let entries = manager.sidebar_entries();
     let collapsed = flatten_sidebar_entries(&entries, &HashSet::new());
@@ -304,22 +307,25 @@ fn pty_manager_kill_selected_updates_active_session() {
 fn applying_poll_snapshot_adds_and_updates_discovered_sessions() {
     let mut manager = PtyManager::default();
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_discovered".into(),
-            cwd: PathBuf::from("/tmp/discovered"),
-            title: "discovered".into(),
-            status: SessionStatus::NeedsInput,
-            process_pid: Some(42),
-            model: Some("gpt-5".into()),
-            preview: Some("need answer".into()),
-            time_updated: None,
-            has_children: true,
-            children: vec![],
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_discovered".into(),
+                cwd: PathBuf::from("/tmp/discovered"),
+                title: "discovered".into(),
+                status: SessionStatus::NeedsInput,
+                process_pid: Some(42),
+                model: Some("gpt-5".into()),
+                preview: Some("need answer".into()),
+                time_updated: None,
+                has_children: true,
+                children: vec![],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.selected_summary().unwrap();
     assert_eq!(summary.session_id.as_deref(), Some("sess_discovered"));
@@ -332,24 +338,27 @@ fn applying_poll_snapshot_adds_and_updates_discovered_sessions() {
 #[test]
 fn applying_poll_snapshot_removes_stale_discovered_placeholders() {
     let mut manager = PtyManager::default();
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_old".into(),
-            cwd: PathBuf::from("/tmp/old"),
-            title: "old".into(),
-            status: SessionStatus::Idle,
-            process_pid: Some(11),
-            model: None,
-            preview: None,
-            time_updated: None,
-            has_children: false,
-            children: vec![],
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_old".into(),
+                cwd: PathBuf::from("/tmp/old"),
+                title: "old".into(),
+                status: SessionStatus::Idle,
+                process_pid: Some(11),
+                model: None,
+                preview: None,
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
-    manager.apply_poll_snapshot(PollSnapshot { sessions: vec![] });
+    manager.apply_poll_snapshot(PollSnapshot { sessions: vec![] }, &Default::default());
 
     assert!(manager.is_empty());
 }
@@ -357,30 +366,33 @@ fn applying_poll_snapshot_removes_stale_discovered_placeholders() {
 #[test]
 fn sidebar_entries_include_child_sessions() {
     let mut manager = PtyManager::default();
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "parent".into(),
-            cwd: PathBuf::from("/tmp/parent"),
-            title: "parent".into(),
-            status: SessionStatus::Working,
-            process_pid: Some(7),
-            model: None,
-            preview: None,
-            time_updated: None,
-            has_children: true,
-            children: vec![opencode_multiplexer::data::poller::ChildSessionInfo {
-                session_id: "child".into(),
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "parent".into(),
                 cwd: PathBuf::from("/tmp/parent"),
-                title: "child".into(),
-                status: SessionStatus::NeedsInput,
+                title: "parent".into(),
+                status: SessionStatus::Working,
+                process_pid: Some(7),
+                model: None,
+                preview: None,
                 time_updated: None,
-                has_children: false,
-                children: vec![],
+                has_children: true,
+                children: vec![opencode_multiplexer::data::poller::ChildSessionInfo {
+                    session_id: "child".into(),
+                    cwd: PathBuf::from("/tmp/parent"),
+                    title: "child".into(),
+                    status: SessionStatus::NeedsInput,
+                    time_updated: None,
+                    has_children: false,
+                    children: vec![],
+                }],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
             }],
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+        },
+        &Default::default(),
+    );
 
     let entries = manager.sidebar_entries();
     assert_eq!(entries.len(), 1);
@@ -455,38 +467,41 @@ fn unresolved_managed_entry_waits_for_sse_not_cwd() {
 
     // Poll discovers two sessions in the same cwd, but the managed entry must
     // remain unresolved until SSE provides its identity.
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![
-            DiscoveredSessionInfo {
-                session_id: "sess_wrong".into(),
-                cwd: PathBuf::from("/tmp/new-worktree"),
-                title: "Wrong Session".into(),
-                status: SessionStatus::Idle,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(50),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::TuiExplicit,
-            },
-            DiscoveredSessionInfo {
-                session_id: "sess_real".into(),
-                cwd: PathBuf::from("/tmp/new-worktree"),
-                title: "Real Session".into(),
-                status: SessionStatus::Working,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(200),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::TuiExplicit,
-            },
-        ],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![
+                DiscoveredSessionInfo {
+                    session_id: "sess_wrong".into(),
+                    cwd: PathBuf::from("/tmp/new-worktree"),
+                    title: "Wrong Session".into(),
+                    status: SessionStatus::Idle,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(50),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::TuiExplicit,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_real".into(),
+                    cwd: PathBuf::from("/tmp/new-worktree"),
+                    title: "Real Session".into(),
+                    status: SessionStatus::Working,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(200),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::TuiExplicit,
+                },
+            ],
+        },
+        &Default::default(),
+    );
 
     let entry = manager
         .sessions()
@@ -613,22 +628,25 @@ fn apply_poll_snapshot_updates_via_serve_pid() {
         vec![],
     );
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_correct".into(),
-            cwd: PathBuf::from("/tmp/project"),
-            title: "Correct Title".into(),
-            status: SessionStatus::Working,
-            process_pid: Some(std::process::id()), // serve PID (live)
-            model: None,
-            preview: None,
-            time_updated: None,
-            has_children: false,
-            children: vec![],
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_correct".into(),
+                cwd: PathBuf::from("/tmp/project"),
+                title: "Correct Title".into(),
+                status: SessionStatus::Working,
+                process_pid: Some(std::process::id()), // serve PID (live)
+                model: None,
+                preview: None,
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.selected_summary().unwrap();
     assert_eq!(summary.session_id.as_deref(), Some("sess_correct"));
@@ -647,22 +665,25 @@ fn manager_can_attach_arbitrary_session_reuses_existing() {
     let mut manager = PtyManager::default();
 
     // First, Poller discovers an active session in the background and registers it
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_existing".into(),
-            cwd: PathBuf::from("/tmp/existing"),
-            title: "Existing".into(),
-            status: SessionStatus::Idle,
-            process_pid: None,
-            model: None,
-            preview: None,
-            time_updated: Some(100),
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4000),
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_existing".into(),
+                cwd: PathBuf::from("/tmp/existing"),
+                title: "Existing".into(),
+                status: SessionStatus::Idle,
+                process_pid: None,
+                model: None,
+                preview: None,
+                time_updated: Some(100),
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4000),
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     assert_eq!(manager.len(), 1);
     let summary_before = manager.sessions().items()[0].clone();
@@ -739,22 +760,25 @@ fn manager_apply_poll_snapshot_matches_unresolved_managed_session() {
     );
 
     // TUI loop scans process table first and guesses the session_id
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_guessed".into(),
-            cwd: PathBuf::from("/tmp/unresolved"),
-            title: "Guessed Title".into(),
-            status: SessionStatus::Idle,
-            process_pid: None, // Poller might not associate process pid correctly here
-            model: None,
-            preview: None,
-            time_updated: Some(101),
-            has_children: false,
-            children: vec![],
-            serve_port: None,
-            source: DiscoverySource::TuiHeuristic,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_guessed".into(),
+                cwd: PathBuf::from("/tmp/unresolved"),
+                title: "Guessed Title".into(),
+                status: SessionStatus::Idle,
+                process_pid: None, // Poller might not associate process pid correctly here
+                model: None,
+                preview: None,
+                time_updated: Some(101),
+                has_children: false,
+                children: vec![],
+                serve_port: None,
+                source: DiscoverySource::TuiHeuristic,
+            }],
+        },
+        &Default::default(),
+    );
 
     // Heuristic discoveries cannot claim unresolved managed entries (they
     // guess wrong too often). The entry stays unresolved and the heuristic
@@ -789,22 +813,25 @@ fn serve_discovery_does_not_overwrite_managed_serve_port() {
         vec![],
     );
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_managed".into(),
-            cwd: PathBuf::from("/tmp/project-a"),
-            title: "Updated Title".into(),
-            status: SessionStatus::Working,
-            process_pid: Some(500),
-            model: None,
-            preview: None,
-            time_updated: Some(101),
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4220),
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_managed".into(),
+                cwd: PathBuf::from("/tmp/project-a"),
+                title: "Updated Title".into(),
+                status: SessionStatus::Working,
+                process_pid: Some(500),
+                model: None,
+                preview: None,
+                time_updated: Some(101),
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4220),
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.selected_summary().unwrap();
     assert_eq!(summary.serve_port, Some(4223));
@@ -847,22 +874,25 @@ fn session_id_match_takes_priority_over_serve_port() {
         vec![],
     );
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_b".into(),
-            cwd: PathBuf::from("/tmp/b"),
-            title: "Entry B Updated".into(),
-            status: SessionStatus::Working,
-            process_pid: Some(500),
-            model: None,
-            preview: None,
-            time_updated: Some(201),
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4220),
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_b".into(),
+                cwd: PathBuf::from("/tmp/b"),
+                title: "Entry B Updated".into(),
+                status: SessionStatus::Working,
+                process_pid: Some(500),
+                model: None,
+                preview: None,
+                time_updated: Some(201),
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4220),
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     let items = manager.sessions().items();
     let summary_a = items.iter().find(|s| s.id == entry_a).unwrap();
@@ -880,22 +910,25 @@ fn session_id_match_takes_priority_over_serve_port() {
 #[test]
 fn idle_unmanaged_serve_session_appears_in_sidebar() {
     let mut manager = PtyManager::default();
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_idle_external".into(),
-            cwd: PathBuf::from("/tmp/external-project"),
-            title: "External Idle Session".into(),
-            status: SessionStatus::Idle,
-            process_pid: Some(99999),
-            model: Some("gpt-5".into()),
-            preview: Some("waiting...".into()),
-            time_updated: None,
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4242),
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_idle_external".into(),
+                cwd: PathBuf::from("/tmp/external-project"),
+                title: "External Idle Session".into(),
+                status: SessionStatus::Idle,
+                process_pid: Some(99999),
+                model: Some("gpt-5".into()),
+                preview: Some("waiting...".into()),
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4242),
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     assert!(
         !manager.is_empty(),
@@ -913,22 +946,25 @@ fn idle_unmanaged_serve_session_appears_in_sidebar() {
 #[test]
 fn error_unmanaged_serve_session_appears_in_sidebar() {
     let mut manager = PtyManager::default();
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_error_external".into(),
-            cwd: PathBuf::from("/tmp/error-project"),
-            title: "External Error Session".into(),
-            status: SessionStatus::Error,
-            process_pid: Some(88888),
-            model: Some("gpt-5".into()),
-            preview: Some("error occurred".into()),
-            time_updated: None,
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4343),
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_error_external".into(),
+                cwd: PathBuf::from("/tmp/error-project"),
+                title: "External Error Session".into(),
+                status: SessionStatus::Error,
+                process_pid: Some(88888),
+                model: Some("gpt-5".into()),
+                preview: Some("error occurred".into()),
+                time_updated: None,
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4343),
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     assert!(
         !manager.is_empty(),
@@ -1085,7 +1121,7 @@ fn managed_working_with_dead_serve_becomes_error() {
         }],
     };
 
-    manager.apply_poll_snapshot(snapshot);
+    manager.apply_poll_snapshot(snapshot, &Default::default());
 
     let entries = manager.sidebar_entries();
     assert_eq!(entries.len(), 1);
@@ -1132,7 +1168,7 @@ fn managed_idle_with_dead_serve_stays_idle() {
         }],
     };
 
-    manager.apply_poll_snapshot(snapshot);
+    manager.apply_poll_snapshot(snapshot, &Default::default());
 
     let entries = manager.sidebar_entries();
     assert_eq!(entries.len(), 1);
@@ -1179,7 +1215,7 @@ fn managed_working_with_live_serve_stays_working() {
         }],
     };
 
-    manager.apply_poll_snapshot(snapshot);
+    manager.apply_poll_snapshot(snapshot, &Default::default());
 
     let entries = manager.sidebar_entries();
     assert_eq!(entries.len(), 1);
@@ -1226,7 +1262,7 @@ fn managed_without_serve_pid_is_not_marked_error() {
         }],
     };
 
-    manager.apply_poll_snapshot(snapshot);
+    manager.apply_poll_snapshot(snapshot, &Default::default());
 
     let entries = manager.sidebar_entries();
     assert_eq!(entries.len(), 1);
@@ -1262,7 +1298,7 @@ fn managed_dead_serve_not_in_snapshot_is_removed() {
 
     // Empty snapshot — session is not rediscovered
     let snapshot = PollSnapshot { sessions: vec![] };
-    let registry_dirty = manager.apply_poll_snapshot(snapshot);
+    let registry_dirty = manager.apply_poll_snapshot(snapshot, &Default::default());
 
     assert!(
         registry_dirty,
@@ -1310,7 +1346,7 @@ fn managed_dead_serve_replaced_in_same_cwd_is_removed() {
             source: DiscoverySource::TuiExplicit,
         }],
     };
-    let registry_dirty = manager.apply_poll_snapshot(snapshot);
+    let registry_dirty = manager.apply_poll_snapshot(snapshot, &Default::default());
 
     assert!(
         registry_dirty,
@@ -1359,7 +1395,7 @@ fn managed_dead_serve_with_live_pty_is_kept() {
     manager.insert_pty_for_session(id, pty);
 
     let snapshot = PollSnapshot { sessions: vec![] };
-    let registry_dirty = manager.apply_poll_snapshot(snapshot);
+    let registry_dirty = manager.apply_poll_snapshot(snapshot, &Default::default());
 
     assert!(
         !registry_dirty,
@@ -1393,7 +1429,7 @@ fn discovered_stale_cleanup_still_works() {
 
     // Empty snapshot — discovered session is stale
     let snapshot = PollSnapshot { sessions: vec![] };
-    let registry_dirty = manager.apply_poll_snapshot(snapshot);
+    let registry_dirty = manager.apply_poll_snapshot(snapshot, &Default::default());
 
     assert!(
         !registry_dirty,
@@ -1425,7 +1461,7 @@ fn managed_live_serve_is_never_removed() {
     );
 
     let snapshot = PollSnapshot { sessions: vec![] };
-    let registry_dirty = manager.apply_poll_snapshot(snapshot);
+    let registry_dirty = manager.apply_poll_snapshot(snapshot, &Default::default());
 
     assert!(
         !registry_dirty,
@@ -1480,15 +1516,18 @@ fn heuristic_with_session_id_match_updates_metadata() {
         vec![],
     );
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![heuristic_discovery(
-            "sess-1",
-            Some(222),
-            "New title",
-            SessionStatus::Idle,
-            20,
-        )],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![heuristic_discovery(
+                "sess-1",
+                Some(222),
+                "New title",
+                SessionStatus::Idle,
+                20,
+            )],
+        },
+        &Default::default(),
+    );
 
     let summary = manager
         .sessions()
@@ -1523,15 +1562,18 @@ fn heuristic_with_pid_match_blocks_update() {
         vec![],
     );
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![heuristic_discovery(
-            "sess-wrong",
-            Some(111),
-            "Wrong title",
-            SessionStatus::Idle,
-            20,
-        )],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![heuristic_discovery(
+                "sess-wrong",
+                Some(111),
+                "Wrong title",
+                SessionStatus::Idle,
+                20,
+            )],
+        },
+        &Default::default(),
+    );
 
     let summary = manager
         .sessions()
@@ -1566,15 +1608,18 @@ fn heuristic_adopts_session_id_when_none() {
         vec![],
     );
 
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![heuristic_discovery(
-            "sess-adopted",
-            None,
-            "New title",
-            SessionStatus::Idle,
-            20,
-        )],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![heuristic_discovery(
+                "sess-adopted",
+                None,
+                "New title",
+                SessionStatus::Idle,
+                20,
+            )],
+        },
+        &Default::default(),
+    );
 
     // Heuristic cannot resolve unresolved managed entries.
     let summary = manager
@@ -1621,38 +1666,41 @@ fn heuristic_pid_match_blocked_then_explicit_match_does_not_duplicate() {
     // managed-sessions registry supplies the correct session_id explicitly.
     // If the blocked heuristic consumes the matched-id slot, the explicit
     // entry cannot find the existing placeholder and creates a duplicate.
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![
-            DiscoveredSessionInfo {
-                session_id: "sess_wrong".into(),
-                cwd: PathBuf::from("/tmp/proj"),
-                title: "Wrong Guess".into(),
-                status: SessionStatus::Idle,
-                process_pid: Some(100),
-                model: None,
-                preview: None,
-                time_updated: Some(500),
-                has_children: false,
-                children: vec![],
-                serve_port: None,
-                source: DiscoverySource::TuiHeuristic,
-            },
-            DiscoveredSessionInfo {
-                session_id: "sess_real".into(),
-                cwd: PathBuf::from("/tmp/proj"),
-                title: "PR #2908 review...".into(),
-                status: SessionStatus::Working,
-                process_pid: None,
-                model: None,
-                preview: None,
-                time_updated: Some(1000),
-                has_children: false,
-                children: vec![],
-                serve_port: None,
-                source: DiscoverySource::TuiExplicit,
-            },
-        ],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![
+                DiscoveredSessionInfo {
+                    session_id: "sess_wrong".into(),
+                    cwd: PathBuf::from("/tmp/proj"),
+                    title: "Wrong Guess".into(),
+                    status: SessionStatus::Idle,
+                    process_pid: Some(100),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(500),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: None,
+                    source: DiscoverySource::TuiHeuristic,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_real".into(),
+                    cwd: PathBuf::from("/tmp/proj"),
+                    title: "PR #2908 review...".into(),
+                    status: SessionStatus::Working,
+                    process_pid: None,
+                    model: None,
+                    preview: None,
+                    time_updated: Some(1000),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: None,
+                    source: DiscoverySource::TuiExplicit,
+                },
+            ],
+        },
+        &Default::default(),
+    );
 
     // The real session should be updated in place; no duplicate placeholder.
     assert_eq!(
@@ -1689,38 +1737,41 @@ fn serve_discovery_cannot_steal_session_identity() {
 
     // A serve returns both the original session and an intruder from the same DB.
     // Both have process_pid = serve_pid (the serve daemon's PID).
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![
-            DiscoveredSessionInfo {
-                session_id: "sess_original".into(),
-                cwd: PathBuf::from("/tmp/project"),
-                title: "Updated Title".into(),
-                status: SessionStatus::Idle,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(200),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::TuiExplicit,
-            },
-            DiscoveredSessionInfo {
-                session_id: "sess_intruder".into(),
-                cwd: PathBuf::from("/tmp/project"),
-                title: "Intruder Title".into(),
-                status: SessionStatus::Idle,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(200),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::TuiExplicit,
-            },
-        ],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![
+                DiscoveredSessionInfo {
+                    session_id: "sess_original".into(),
+                    cwd: PathBuf::from("/tmp/project"),
+                    title: "Updated Title".into(),
+                    status: SessionStatus::Idle,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(200),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::TuiExplicit,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_intruder".into(),
+                    cwd: PathBuf::from("/tmp/project"),
+                    title: "Intruder Title".into(),
+                    status: SessionStatus::Idle,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(200),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::TuiExplicit,
+                },
+            ],
+        },
+        &Default::default(),
+    );
 
     // The original entry must keep its session_id.
     let original = manager
@@ -1763,22 +1814,25 @@ fn process_pid_not_cleared_by_none_discovery() {
     );
 
     // Simulate managed hydration which passes process_pid = None.
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_1".into(),
-            cwd: PathBuf::from("/tmp/project"),
-            title: "Updated Title".into(),
-            status: SessionStatus::Idle,
-            process_pid: None,
-            model: None,
-            preview: None,
-            time_updated: Some(200),
-            has_children: false,
-            children: vec![],
-            serve_port: None,
-            source: DiscoverySource::TuiExplicit,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_1".into(),
+                cwd: PathBuf::from("/tmp/project"),
+                title: "Updated Title".into(),
+                status: SessionStatus::Idle,
+                process_pid: None,
+                model: None,
+                preview: None,
+                time_updated: Some(200),
+                has_children: false,
+                children: vec![],
+                serve_port: None,
+                source: DiscoverySource::TuiExplicit,
+            }],
+        },
+        &Default::default(),
+    );
 
     let summary = manager
         .sessions()
@@ -1851,52 +1905,55 @@ fn multiple_serve_sessions_do_not_overwrite_existing_entries() {
     // All have the same process_pid (the serve daemon's PID).
     // Without the matched_ids fix, the last session would overwrite
     // all previous entries via serve_pid matching.
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![
-            DiscoveredSessionInfo {
-                session_id: "sess_a".into(),
-                cwd: PathBuf::from("/tmp/a"),
-                title: "Updated A".into(),
-                status: SessionStatus::Working,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(200),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::TuiExplicit,
-            },
-            DiscoveredSessionInfo {
-                session_id: "sess_b".into(),
-                cwd: PathBuf::from("/tmp/b"),
-                title: "Updated B".into(),
-                status: SessionStatus::NeedsInput,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(200),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::Serve,
-            },
-            DiscoveredSessionInfo {
-                session_id: "sess_c".into(),
-                cwd: PathBuf::from("/tmp/c"),
-                title: "Updated C".into(),
-                status: SessionStatus::Error,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(200),
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::Serve,
-            },
-        ],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![
+                DiscoveredSessionInfo {
+                    session_id: "sess_a".into(),
+                    cwd: PathBuf::from("/tmp/a"),
+                    title: "Updated A".into(),
+                    status: SessionStatus::Working,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(200),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::TuiExplicit,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_b".into(),
+                    cwd: PathBuf::from("/tmp/b"),
+                    title: "Updated B".into(),
+                    status: SessionStatus::NeedsInput,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(200),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::Serve,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_c".into(),
+                    cwd: PathBuf::from("/tmp/c"),
+                    title: "Updated C".into(),
+                    status: SessionStatus::Error,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(200),
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::Serve,
+                },
+            ],
+        },
+        &Default::default(),
+    );
 
     // All three entries should keep their correct session_ids.
     assert_eq!(manager.len(), 3);
@@ -1955,38 +2012,41 @@ fn unresolved_entry_not_claimed_by_old_session_with_same_cwd() {
     // The serve returns an old session (time_updated=500, before spawn)
     // and a new session (time_updated=1100, after spawn), both with the same cwd.
     // Without the recency check, the old session would claim the entry first.
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![
-            DiscoveredSessionInfo {
-                session_id: "sess_old_ledger".into(),
-                cwd: PathBuf::from("/tmp/delorean"),
-                title: "Ledger Extraction".into(),
-                status: SessionStatus::Idle,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(500), // BEFORE spawn
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::Serve,
-            },
-            DiscoveredSessionInfo {
-                session_id: "sess_q3_intel".into(),
-                cwd: PathBuf::from("/tmp/delorean"),
-                title: "Q3 Intelligence".into(),
-                status: SessionStatus::Working,
-                process_pid: Some(serve_pid),
-                model: None,
-                preview: None,
-                time_updated: Some(1100), // AFTER spawn
-                has_children: false,
-                children: vec![],
-                serve_port: Some(4200),
-                source: DiscoverySource::Serve,
-            },
-        ],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![
+                DiscoveredSessionInfo {
+                    session_id: "sess_old_ledger".into(),
+                    cwd: PathBuf::from("/tmp/delorean"),
+                    title: "Ledger Extraction".into(),
+                    status: SessionStatus::Idle,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(500), // BEFORE spawn
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::Serve,
+                },
+                DiscoveredSessionInfo {
+                    session_id: "sess_q3_intel".into(),
+                    cwd: PathBuf::from("/tmp/delorean"),
+                    title: "Q3 Intelligence".into(),
+                    status: SessionStatus::Working,
+                    process_pid: Some(serve_pid),
+                    model: None,
+                    preview: None,
+                    time_updated: Some(1100), // AFTER spawn
+                    has_children: false,
+                    children: vec![],
+                    serve_port: Some(4200),
+                    source: DiscoverySource::Serve,
+                },
+            ],
+        },
+        &Default::default(),
+    );
 
     let entry = manager
         .sessions()
@@ -2029,22 +2089,25 @@ fn serve_discovery_does_not_overwrite_entry_with_different_session_id() {
     // 1. The managed session's TuiExplicit discovery fails (e.g., DB lock)
     // 2. The serve returns sessions for its project, including a different session
     // 3. The Serve discovery matches the entry by serve_pid (not session_id)
-    manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_wrong".into(),
-            cwd: PathBuf::from("/tmp/wrong-project"),
-            title: "Wrong Title".into(),
-            status: SessionStatus::Working,
-            process_pid: Some(serve_pid),
-            model: None,
-            preview: None,
-            time_updated: Some(200),
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4200),
-            source: DiscoverySource::Serve,
-        }],
-    });
+    manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_wrong".into(),
+                cwd: PathBuf::from("/tmp/wrong-project"),
+                title: "Wrong Title".into(),
+                status: SessionStatus::Working,
+                process_pid: Some(serve_pid),
+                model: None,
+                preview: None,
+                time_updated: Some(200),
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4200),
+                source: DiscoverySource::Serve,
+            }],
+        },
+        &Default::default(),
+    );
 
     // Entry should keep its correct session_id, cwd, and title.
     // The Serve discovery must NOT overwrite an entry that already has
@@ -2092,22 +2155,25 @@ fn registry_dirty_when_managed_session_id_is_resolved() {
 
     // Poll snapshots no longer resolve an unresolved managed entry; SSE owns
     // identity resolution now.
-    let dirty = manager.apply_poll_snapshot(PollSnapshot {
-        sessions: vec![DiscoveredSessionInfo {
-            session_id: "sess_resolved".into(),
-            cwd: PathBuf::from("/tmp/project"),
-            title: "Resolved Title".into(),
-            status: SessionStatus::Working,
-            process_pid: Some(serve_pid),
-            model: None,
-            preview: None,
-            time_updated: Some(200),
-            has_children: false,
-            children: vec![],
-            serve_port: Some(4200),
-            source: DiscoverySource::Serve,
-        }],
-    });
+    let dirty = manager.apply_poll_snapshot(
+        PollSnapshot {
+            sessions: vec![DiscoveredSessionInfo {
+                session_id: "sess_resolved".into(),
+                cwd: PathBuf::from("/tmp/project"),
+                title: "Resolved Title".into(),
+                status: SessionStatus::Working,
+                process_pid: Some(serve_pid),
+                model: None,
+                preview: None,
+                time_updated: Some(200),
+                has_children: false,
+                children: vec![],
+                serve_port: Some(4200),
+                source: DiscoverySource::Serve,
+            }],
+        },
+        &Default::default(),
+    );
 
     let summary = manager.sessions().items()[0].clone();
     assert_eq!(summary.session_id.as_deref(), None);

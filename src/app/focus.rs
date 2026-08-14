@@ -5,4 +5,5 @@ pub enum AppFocus {
     Terminal,
     Conversation,
     Diff,
+    Agents,
 }

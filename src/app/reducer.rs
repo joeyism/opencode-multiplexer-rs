@@ -5,8 +5,11 @@ pub fn reduce(state: &mut AppState, action: Action) {
         Action::ToggleFocus => {
             state.focus = match state.focus {
                 AppFocus::Sidebar => state.last_main_focus,
-                AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff => {
-                    if matches!(state.focus, AppFocus::Conversation | AppFocus::Diff) {
+                AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff | AppFocus::Agents => {
+                    if matches!(
+                        state.focus,
+                        AppFocus::Conversation | AppFocus::Diff | AppFocus::Agents
+                    ) {
                         state.last_main_focus = AppFocus::Terminal;
                     }
                     AppFocus::Sidebar
@@ -15,7 +18,7 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
         Action::SetFocus(target) => {
             match target {
-                AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff => {
+                AppFocus::Terminal | AppFocus::Conversation | AppFocus::Diff | AppFocus::Agents => {
                     state.last_main_focus = target;
                 }
                 AppFocus::Sidebar => {}

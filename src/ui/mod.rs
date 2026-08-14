@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod conversation;
 pub mod diff;
 pub mod hints;

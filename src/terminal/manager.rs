@@ -356,6 +356,19 @@ impl PtyManager {
             .find(|session| session.id == active_id)
     }
 
+    pub fn apply_open_requests_overlay(
+        &mut self,
+        open_requests: &crate::ops::open_requests::OpenRequestTracker,
+    ) {
+        for summary in self.sessions.items_mut() {
+            if let Some(session_id) = &summary.session_id {
+                summary.status =
+                    open_requests.overlay_status(session_id, &summary.children, summary.status);
+                open_requests.overlay_child_tree(&mut summary.children);
+            }
+        }
+    }
+
     pub fn reap_exited_ptys(&mut self) -> Vec<u64> {
         let dead_ids: Vec<u64> = self
             .ptys
@@ -417,7 +430,11 @@ impl PtyManager {
             .collect()
     }
 
-    pub fn apply_poll_snapshot(&mut self, snapshot: PollSnapshot) -> bool {
+    pub fn apply_poll_snapshot(
+        &mut self,
+        snapshot: PollSnapshot,
+        open_requests: &crate::ops::open_requests::OpenRequestTracker,
+    ) -> bool {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum MatchKind {
             SessionId,
@@ -473,7 +490,11 @@ impl PtyManager {
                     ));
                     summary.cwd = discovered.cwd.clone();
                     summary.title = discovered.title.clone();
-                    summary.status = discovered.status;
+                    summary.status = open_requests.overlay_status(
+                        &discovered.session_id,
+                        &discovered.children,
+                        discovered.status,
+                    );
                     if let Some(pid) = discovered.process_pid
                         && Some(pid) != summary.serve_pid
                     {
@@ -483,7 +504,9 @@ impl PtyManager {
                     summary.preview = discovered.preview.clone();
                     summary.time_updated = discovered.time_updated;
                     summary.has_children = discovered.has_children;
-                    summary.children = discovered.children.clone();
+                    let mut children = discovered.children.clone();
+                    open_requests.overlay_child_tree(&mut children);
+                    summary.children = children;
                     // Only update serve_port for non-managed sessions.
                     // Managed sessions have an authoritative serve_port set at
                     // spawn time — a Serve discovery may report a different port
@@ -506,10 +529,18 @@ impl PtyManager {
             // sessions entirely. Sessions enter the sidebar through
             // spawn_managed, the session picker, or the managed sessions file.
             if matches!(discovered.source, DiscoverySource::TuiExplicit) {
+                let status = open_requests.overlay_status(
+                    &discovered.session_id,
+                    &discovered.children,
+                    discovered.status,
+                );
+                let mut children = discovered.children.clone();
+                open_requests.overlay_child_tree(&mut children);
+
                 let placeholder_id = self.register_placeholder(
                     discovered.cwd,
                     discovered.title,
-                    discovered.status,
+                    status,
                     Some(discovered.session_id),
                     SessionOrigin::Discovered,
                     discovered.process_pid,
@@ -519,7 +550,7 @@ impl PtyManager {
                     discovered.preview,
                     discovered.time_updated,
                     discovered.has_children,
-                    discovered.children,
+                    children,
                 );
                 matched_ids.insert(placeholder_id);
             }

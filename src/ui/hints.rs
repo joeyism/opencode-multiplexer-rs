@@ -21,8 +21,25 @@ pub fn footer_line(
     match focus {
         AppFocus::Conversation => conversation_hints(keys),
         AppFocus::Diff => diff_hints(keys, diff_visual_mode),
+        AppFocus::Agents => agents_hints(),
         _ => main_hints(focus, keys),
     }
+}
+
+fn agents_hints() -> Line<'static> {
+    Line::from(vec![
+        Span::styled("j/k", Style::default().fg(Color::Cyan)),
+        Span::raw(" move  "),
+        Span::styled("Enter", Style::default().fg(Color::Cyan)),
+        Span::raw(" attach  "),
+        Span::styled("v", Style::default().fg(Color::Cyan)),
+        Span::raw(" convo  "),
+        Span::styled("d", Style::default().fg(Color::Cyan)),
+        Span::raw(" diff  "),
+        Span::styled("a/q/Esc", Style::default().fg(Color::Cyan)),
+        Span::raw(" back  "),
+        Span::styled("[agents]", Style::default().fg(Color::Yellow)),
+    ])
 }
 
 fn conversation_hints(keys: &Keybindings) -> Line<'static> {
@@ -95,6 +112,7 @@ fn main_hints(focus: AppFocus, keys: &Keybindings) -> Line<'static> {
         AppFocus::Terminal => "terminal",
         AppFocus::Conversation => "conversation",
         AppFocus::Diff => "diff",
+        AppFocus::Agents => "agents",
     };
 
     Line::from(vec![

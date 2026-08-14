@@ -45,7 +45,8 @@ A terminal multiplexer for managing [OpenCode](https://opencode.ai) sessions.
   - [Session picker](#session-picker)
   - [Message history picker](#message-history-picker)
   - [Conversation view](#conversation-view)
-  - [Diff view](#diff-view)
+   - [Diff view](#diff-view)
+   - [Agents view](#agents-view)
   - [Visual mode](#visual-mode)
   - [Shell mode](#shell-mode)
   - [Sidebar layout](#sidebar-layout)
@@ -120,6 +121,7 @@ Run `ocmux` in your terminal. The sidebar lists active OpenCode sessions sorted 
 |-----|---------------------------------------|
 | `n` | Spawn new session                     |
 | `t` | Create git worktree + spawn           |
+| `a` | Open Agents relationship view         |
 | `v` | Open read-only conversation view       |
 | `d` | Open diff view for session             |
 | `f` | Show files modified by session        |
@@ -128,6 +130,16 @@ Run `ocmux` in your terminal. The sidebar lists active OpenCode sessions sorted 
 | `h` | Open message history picker           |
 | `s` | Open session manager (delete junk)    |
 | `x` | Kill session (`y` confirm, `n`/`Esc` cancel) |
+
+### Status icons
+
+| Icon | Meaning |
+|------|---------|
+| `●` (green) | Agent is working (including normal tool startup) |
+| `◐` (yellow) | Session is blocked waiting for your input or tool permission |
+| `●` (cyan) | Subagents are active |
+| `✖` (red) | Session encountered an error |
+| `○` (gray) | Session is idle |
 
 ### Session picker
 
@@ -235,6 +247,12 @@ The diff view uses a **cursor-based** navigation model (distinct from the scroll
 **Search:** Case-insensitive, incremental. The search bar shows current/total matches. Jumping to matches moves the cursor to the match line. The `/` key is disabled while visual mode is active — cancel visual mode first to search.
 
 Mouse scroll is supported and keeps the cursor within the viewport (same behavior as `Ctrl-y` / `Ctrl-e`).
+
+### Agents view
+
+Press `a` from the sidebar to inspect the selected session's subagent relationships. The view shows a live session tree by default. When the session is the parent of a [parallel-builds](https://github.com/joeyism/opencode-parallel-builds) run, ocmux automatically loads its `plan.json` and `runs.db` to show dependency waves, task status, and linked worker sessions.
+
+Select a node with `j`/`k`. Press `Enter` to attach to a linked worker, `v` to open its conversation, or `d` to inspect its diff. Press `a`, `q`, or `Esc` to return.
 
 ### Visual mode
 <p align="center" width="100%">

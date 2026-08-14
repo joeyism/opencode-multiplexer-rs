@@ -438,30 +438,6 @@ impl DbReader {
                 }
             }
 
-            // Detect 'pending' status on ANY tool call part (permission required)
-            let latest_pending: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM part p WHERE p.session_id = ?1 AND p.message_id = ?2 AND json_extract(p.data, '$.type') = 'tool' AND json_extract(p.data, '$.state.status') = 'pending'",
-                params![session_id, message_id],
-                |row| row.get(0),
-            )?;
-            if latest_pending > 0 {
-                if let Some(cutoff) = process_start_time {
-                    let part_time: Option<i64> = self
-                        .conn
-                        .query_row(
-                            "SELECT time_created FROM part WHERE session_id = ?1 AND message_id = ?2 AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'pending' LIMIT 1",
-                            params![session_id, message_id],
-                            |row| row.get(0),
-                        )
-                        .optional()?;
-                    if part_time.is_none_or(|t| t >= cutoff) {
-                        return Ok(SessionStatus::NeedsInput);
-                    }
-                } else {
-                    return Ok(SessionStatus::NeedsInput);
-                }
-            }
-
             // Check for Error
             let latest_error: i64 = self.conn.query_row(
                 "SELECT COUNT(*) FROM part p WHERE p.session_id = ?1 AND p.message_id = ?2 AND json_extract(p.data, '$.type') = 'tool' AND json_extract(p.data, '$.state.status') = 'error'",
@@ -909,7 +885,7 @@ mod tests {
         let reader = DbReader::open(&db_path).unwrap();
         assert_eq!(
             reader.get_session_status("sess1", None).unwrap(),
-            SessionStatus::NeedsInput
+            SessionStatus::Working
         );
     }
 

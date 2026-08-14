@@ -270,8 +270,8 @@ fn session_status_pending_tools_needs_input() {
         let reader = DbReader::open(&db_path).unwrap();
         assert_eq!(
             reader.get_session_status(&sess_id, None).unwrap(),
-            SessionStatus::NeedsInput,
-            "Tool {tool} should trigger NeedsInput when pending"
+            SessionStatus::Working,
+            "Tool {tool} should NOT trigger NeedsInput when pending"
         );
     }
 
@@ -441,9 +441,10 @@ fn session_status_multi_level_rollup() {
 
     let reader = DbReader::open(&db_path).unwrap();
     assert_eq!(
-        reader.get_session_status("C", None).unwrap(),
-        SessionStatus::Working
+        reader.get_session_status("sess_1", None).unwrap(),
+        SessionStatus::Idle
     );
+
     assert_eq!(
         reader.get_session_status("B", None).unwrap(),
         SessionStatus::SubagentsWorking
@@ -855,11 +856,43 @@ fn pending_permission_older_than_process_start_is_stale() {
 
     assert_eq!(
         reader.get_session_status("sess_1", None).unwrap(),
-        SessionStatus::NeedsInput
+        SessionStatus::Idle
     );
     assert_eq!(
         reader.get_session_status("sess_1", Some(5000)).unwrap(),
         SessionStatus::Idle
+    );
+
+    fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn session_status_pending_edit_tool_is_working_not_needs_input() {
+    let db_path = temp_db_path("pending_edit");
+    let conn = init_db(&db_path);
+
+    conn.execute(
+        "INSERT INTO project (id, worktree, name, time_created, time_updated) VALUES ('proj_1', '/tmp/repo', 'repo', 1, 2)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO session (id, project_id, parent_id, title, directory, permission, time_created, time_updated, time_archived) VALUES ('sess_1', 'proj_1', NULL, 'title', '/tmp/repo', '{}', 1, 10, NULL)",
+        [],
+    ).unwrap();
+    // Assistant message NOT completed
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES ('msg_1', 'sess_1', '{\"role\":\"assistant\"}', 1)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO part (id, session_id, message_id, data, time_created) VALUES ('part_1', 'sess_1', 'msg_1', '{\"type\":\"tool\",\"tool\":\"edit\",\"state\":{\"status\":\"pending\"}}', 1)",
+        [],
+    ).unwrap();
+
+    let reader = DbReader::open(&db_path).unwrap();
+    assert_eq!(
+        reader.get_session_status("sess_1", None).unwrap(),
+        SessionStatus::Working
     );
 
     fs::remove_file(db_path).ok();

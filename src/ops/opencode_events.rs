@@ -12,39 +12,117 @@ pub struct SessionCreatedEvent {
     pub parent_id: Option<String>,
 }
 
-/// Parse a single SSE `data:` payload into a `SessionCreatedEvent`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServeEvent {
+    SessionCreated(SessionCreatedEvent),
+    PermissionAsked {
+        request_id: String,
+        session_id: String,
+    },
+    PermissionReplied {
+        request_id: String,
+        session_id: String,
+    },
+    QuestionAsked {
+        request_id: String,
+        session_id: String,
+    },
+    QuestionResolved {
+        request_id: String,
+        session_id: String,
+    },
+}
+
+impl ServeEvent {
+    pub fn session_id(&self) -> &str {
+        match self {
+            Self::SessionCreated(e) => &e.session_id,
+            Self::PermissionAsked { session_id, .. } => session_id,
+            Self::PermissionReplied { session_id, .. } => session_id,
+            Self::QuestionAsked { session_id, .. } => session_id,
+            Self::QuestionResolved { session_id, .. } => session_id,
+        }
+    }
+}
+
+/// Parse a single SSE `data:` payload into a `ServeEvent`.
 ///
-/// Returns `None` if the payload is not a `session.created` event or is
+/// Returns `None` if the payload is not a recognized event or is
 /// malformed.  The payload should be the JSON text *after* the `data: ` prefix.
-fn parse_sse_data_payload(payload: &str) -> Option<SessionCreatedEvent> {
+fn parse_sse_data_payload(payload: &str) -> Option<ServeEvent> {
     let json: serde_json::Value = serde_json::from_str(payload.trim()).ok()?;
 
     let event_type = json.get("type")?.as_str()?;
-    if event_type != "session.created" {
-        return None;
+    match event_type {
+        "session.created" => {
+            let info = json.pointer("/properties/info")?;
+            let session_id = info.get("id")?.as_str()?.to_string();
+            let parent_id = info
+                .get("parentID")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            Some(ServeEvent::SessionCreated(SessionCreatedEvent {
+                session_id,
+                parent_id,
+            }))
+        }
+        "permission.asked" | "permission.v2.asked" => {
+            let props = json.get("properties")?;
+            let request_id = props.get("id")?.as_str()?.to_string();
+            let session_id = props.get("sessionID")?.as_str()?.to_string();
+            Some(ServeEvent::PermissionAsked {
+                request_id,
+                session_id,
+            })
+        }
+        "permission.replied" | "permission.v2.replied" => {
+            let props = json.get("properties")?;
+            let request_id = props
+                .get("requestID")
+                .or_else(|| props.get("id"))?
+                .as_str()?
+                .to_string();
+            let session_id = props.get("sessionID")?.as_str()?.to_string();
+            Some(ServeEvent::PermissionReplied {
+                request_id,
+                session_id,
+            })
+        }
+        "question.asked" => {
+            let props = json.get("properties")?;
+            let request_id = props.get("id")?.as_str()?.to_string();
+            let session_id = props.get("sessionID")?.as_str()?.to_string();
+            Some(ServeEvent::QuestionAsked {
+                request_id,
+                session_id,
+            })
+        }
+        "question.replied" | "question.rejected" => {
+            let props = json.get("properties")?;
+            let request_id = props
+                .get("requestID")
+                .or_else(|| props.get("id"))?
+                .as_str()?
+                .to_string();
+            let session_id = props.get("sessionID")?.as_str()?.to_string();
+            Some(ServeEvent::QuestionResolved {
+                request_id,
+                session_id,
+            })
+        }
+        _ => None,
     }
-
-    let info = json.pointer("/properties/info")?;
-    let session_id = info.get("id")?.as_str()?.to_string();
-    let parent_id = info
-        .get("parentID")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    Some(SessionCreatedEvent {
-        session_id,
-        parent_id,
-    })
 }
 
-/// Parse a raw SSE line into a `SessionCreatedEvent`.
+/// Parse a raw SSE line into a `ServeEvent`.
 ///
 /// Accepts lines in these forms:
 /// - `data: {...json...}` — a data frame
 /// - `:` + anything — SSE comment / keepalive (ignored)
 /// - empty line — event delimiter (ignored)
 /// - any other line — ignored (e.g. `event:`, `id:`, `retry:`)
-pub fn parse_sse_data_line(line: &str) -> Option<SessionCreatedEvent> {
+pub fn parse_sse_data_line(line: &str) -> Option<ServeEvent> {
     let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
 
     if trimmed.is_empty() || trimmed.starts_with(':') {
@@ -61,12 +139,11 @@ pub fn parse_sse_data_line(line: &str) -> Option<SessionCreatedEvent> {
     parse_sse_data_payload(payload)
 }
 
-/// Consume a BufRead SSE stream, invoking `handler` for each `session.created`
-/// event encountered.
+/// Consume a BufRead SSE stream, invoking `handler` for each `ServeEvent`.
 ///
 /// Each SSE event is delimited by a blank line.  Data frames for a single
 /// event are concatenated with `\n` before parsing, per the SSE spec.
-pub fn consume_sse_stream<R: BufRead, F: FnMut(SessionCreatedEvent)>(
+pub fn consume_sse_stream<R: BufRead, F: FnMut(ServeEvent)>(
     mut reader: R,
     mut handler: F,
 ) -> std::io::Result<()> {
@@ -128,7 +205,7 @@ impl SessionEventSubscriber {
     /// the provided channel tagged with the serve port.
     ///
     /// The thread reconnects with capped backoff on disconnect.
-    pub fn start(port: u16, tx: Sender<(u16, SessionCreatedEvent)>) -> Self {
+    pub fn start(port: u16, tx: Sender<(u16, ServeEvent)>) -> Self {
         let (stop_tx, stop_rx) = std::sync::mpsc::channel();
         let url = format!("http://localhost:{port}/event");
 
@@ -208,16 +285,86 @@ mod tests {
     fn parse_session_created_extracts_id_and_parent_id() {
         let line = r#"data: {"type":"session.created","properties":{"info":{"id":"sess_abc","parentID":null}}}"#;
         let event = parse_sse_data_line(line).expect("should parse");
-        assert_eq!(event.session_id, "sess_abc");
-        assert_eq!(event.parent_id, None);
+        if let ServeEvent::SessionCreated(e) = event {
+            assert_eq!(e.session_id, "sess_abc");
+            assert_eq!(e.parent_id, None);
+        } else {
+            panic!("Expected SessionCreated, got {:?}", event);
+        }
     }
 
     #[test]
     fn parse_session_created_with_parent_id() {
         let line = r#"data: {"type":"session.created","properties":{"info":{"id":"sess_child","parentID":"sess_parent"}}}"#;
         let event = parse_sse_data_line(line).expect("should parse");
-        assert_eq!(event.session_id, "sess_child");
-        assert_eq!(event.parent_id, Some("sess_parent".into()));
+        if let ServeEvent::SessionCreated(e) = event {
+            assert_eq!(e.session_id, "sess_child");
+            assert_eq!(e.parent_id, Some("sess_parent".into()));
+        } else {
+            panic!("Expected SessionCreated, got {:?}", event);
+        }
+    }
+
+    #[test]
+    fn parse_permission_asked_extracts_id_and_session() {
+        let line = r#"data: {"type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_1","permission":"bash","patterns":["git status"],"always":["git status*"],"metadata":{}}}"#;
+        let event = parse_sse_data_line(line).expect("should parse");
+        match event {
+            ServeEvent::PermissionAsked {
+                request_id,
+                session_id,
+            } => {
+                assert_eq!(request_id, "per_1");
+                assert_eq!(session_id, "ses_1");
+            }
+            _ => panic!("Expected PermissionAsked, got {:?}", event),
+        }
+    }
+
+    #[test]
+    fn parse_permission_replied_extracts_ids() {
+        let line = r#"data: {"type":"permission.replied","properties":{"requestID":"per_1","sessionID":"ses_1","reply":"once"}}"#;
+        let event = parse_sse_data_line(line).expect("should parse");
+        match event {
+            ServeEvent::PermissionReplied {
+                request_id,
+                session_id,
+            } => {
+                assert_eq!(request_id, "per_1");
+                assert_eq!(session_id, "ses_1");
+            }
+            _ => panic!("Expected PermissionReplied, got {:?}", event),
+        }
+    }
+
+    #[test]
+    fn parse_question_asked_and_resolved() {
+        let line_asked =
+            r#"data: {"type":"question.asked","properties":{"id":"q_1","sessionID":"ses_1"}}"#;
+        let event_asked = parse_sse_data_line(line_asked).expect("should parse");
+        match event_asked {
+            ServeEvent::QuestionAsked {
+                request_id,
+                session_id,
+            } => {
+                assert_eq!(request_id, "q_1");
+                assert_eq!(session_id, "ses_1");
+            }
+            _ => panic!("Expected QuestionAsked, got {:?}", event_asked),
+        }
+
+        let line_resolved = r#"data: {"type":"question.replied","properties":{"requestID":"q_1","sessionID":"ses_1"}}"#;
+        let event_resolved = parse_sse_data_line(line_resolved).expect("should parse");
+        match event_resolved {
+            ServeEvent::QuestionResolved {
+                request_id,
+                session_id,
+            } => {
+                assert_eq!(request_id, "q_1");
+                assert_eq!(session_id, "ses_1");
+            }
+            _ => panic!("Expected QuestionResolved, got {:?}", event_resolved),
+        }
     }
 
     #[test]
@@ -285,9 +432,17 @@ data: {\"type\":\"session.created\",\"properties\":{\"info\":{\"id\":\"sess_2\",
         consume_sse_stream(Cursor::new(stream), |e| events.push(e)).unwrap();
 
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].session_id, "sess_1");
-        assert_eq!(events[0].parent_id, None);
-        assert_eq!(events[1].session_id, "sess_2");
-        assert_eq!(events[1].parent_id, Some("sess_1".into()));
+        if let ServeEvent::SessionCreated(ref e) = events[0] {
+            assert_eq!(e.session_id, "sess_1");
+            assert_eq!(e.parent_id, None);
+        } else {
+            panic!("Expected SessionCreated");
+        }
+        if let ServeEvent::SessionCreated(ref e) = events[1] {
+            assert_eq!(e.session_id, "sess_2");
+            assert_eq!(e.parent_id, Some("sess_1".into()));
+        } else {
+            panic!("Expected SessionCreated");
+        }
     }
 }

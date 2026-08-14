@@ -21,7 +21,9 @@ pub fn handle_diff_key(
 ) -> KeyAction {
     if diff.is_searching() {
         match key.code {
-            KeyCode::Char(c) if key.modifiers.is_empty() => {
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
                 diff.search_insert(c, vp);
                 KeyAction::Consumed
             }
@@ -133,7 +135,9 @@ pub fn handle_conversation_key(
 ) -> KeyAction {
     if conv.is_searching() {
         match key.code {
-            KeyCode::Char(c) if key.modifiers.is_empty() => {
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
                 conv.search_insert(c, vp);
                 KeyAction::Consumed
             }
@@ -278,6 +282,15 @@ mod tests {
         diff.start_search();
         handle_diff_key(key(KeyCode::Char('k')), &mut diff, &default_keys(), 100);
         assert_eq!(diff.search_query(), "k");
+    }
+    #[test]
+    fn diff_search_mode_captures_shifted_char() {
+        let mut diff = diff_with_doc(&["hello Path", "path"]);
+        diff.start_search();
+        let shifted = KeyEvent::new(KeyCode::Char('P'), KeyModifiers::SHIFT);
+        handle_diff_key(shifted, &mut diff, &default_keys(), 100);
+        assert_eq!(diff.search_query(), "P");
+        assert!(diff.is_searching());
     }
     #[test]
     fn diff_search_mode_backspace_deletes() {
@@ -628,6 +641,16 @@ mod tests {
         conv.start_search();
         handle_conversation_key(key(KeyCode::Char('h')), &mut conv, &default_keys(), 100);
         assert_eq!(conv.search_query(), "h");
+    }
+
+    #[test]
+    fn conversation_search_mode_captures_shifted_char() {
+        let mut conv = conv_with_doc(&["hello Path"]);
+        conv.start_search();
+        let shifted = KeyEvent::new(KeyCode::Char('P'), KeyModifiers::SHIFT);
+        handle_conversation_key(shifted, &mut conv, &default_keys(), 100);
+        assert_eq!(conv.search_query(), "P");
+        assert!(conv.is_searching());
     }
 
     #[test]
